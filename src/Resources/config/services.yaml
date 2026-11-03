@@ -105,26 +105,32 @@ services:
 
     surfnet_saml.saml2.bridge_container:
         class: Surfnet\SamlBundle\SAML2\BridgeContainer
+        public: true
+        arguments:
+            - '@logger'
+            - '@Psr\Clock\ClockInterface'
 
     Surfnet\SamlBundle\SAML2\BridgeContainer:
         alias: surfnet_saml.saml2.bridge_container
 
     surfnet_saml.saml2.keyloader:
-        class: SAML2\Certificate\KeyLoader
+        class: SimpleSAML\SAML2\Certificate\KeyLoader
 
-    SAML2\Certificate\KeyLoader:
+    SimpleSAML\SAML2\Certificate\KeyLoader:
         alias: surfnet_saml.saml2.keyloader
 
     surfnet_saml.saml2.privatekeyloader:
-        class: SAML2\Certificate\PrivateKeyLoader
+        class: SimpleSAML\SAML2\Certificate\PrivateKeyLoader
 
-    SAML2\Certificate\PrivateKeyLoader:
+    SimpleSAML\SAML2\Certificate\PrivateKeyLoader:
         alias: surfnet_saml.saml2.privatekeyloader
 
     surfnet_saml.saml2.response_processor:
-        class: SAML2\Response\Processor
+        class: SimpleSAML\SAML2\Response\Processor
+        arguments:
+            - '@logger'
 
-    SAML2\Response\Processor:
+    SimpleSAML\SAML2\Response\Processor:
         alias: surfnet_saml.saml2.response_processor
 
     surfnet_saml.logger:
