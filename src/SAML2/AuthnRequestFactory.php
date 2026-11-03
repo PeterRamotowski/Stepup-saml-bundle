@@ -19,13 +19,13 @@
 namespace Surfnet\SamlBundle\SAML2;
 
 use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\AuthnRequest as SAML2AuthnRequest;
-use SAML2\Certificate\PrivateKeyLoader;
-use SAML2\Configuration\PrivateKey;
-use SAML2\Constants;
-use SAML2\DOMDocumentFactory;
-use SAML2\Message;
-use SAML2\XML\saml\Issuer;
+use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
+use SimpleSAML\SAML2\Configuration\PrivateKey;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\XML\saml\Issuer;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
+use SimpleSAML\SAML2\XML\samlp\MessageFactory;
+use SimpleSAML\XML\DOMDocumentFactory;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Exception\RuntimeException;
@@ -101,7 +101,7 @@ class AuthnRequestFactory
         // additional security against XXE Processing vulnerability
         $document = DOMDocumentFactory::fromString($samlRequest);
 
-        $request = Message::fromXML($document->firstChild);
+        $request = MessageFactory::fromXML($document->firstChild);
 
         if (!$request instanceof SAML2AuthnRequest) {
             throw new RuntimeException(sprintf(

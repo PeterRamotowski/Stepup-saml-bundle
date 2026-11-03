@@ -20,9 +20,9 @@ namespace Surfnet\SamlBundle\Signing;
 
 use Psr\Log\LoggerInterface;
 use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\Certificate\Key;
-use SAML2\Certificate\KeyLoader;
-use SAML2\Certificate\X509;
+use SimpleSAML\SAML2\Certificate\Key;
+use SimpleSAML\SAML2\Certificate\KeyLoader;
+use SimpleSAML\SAML2\Certificate\X509;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
 use Surfnet\SamlBundle\Http\SignatureVerifiable;

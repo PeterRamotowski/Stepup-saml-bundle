@@ -20,13 +20,13 @@ namespace Surfnet\SamlBundle\Http;
 
 use LogicException;
 use RuntimeException;
-use SAML2\Assertion;
-use SAML2\Configuration\Destination;
-use SAML2\Constants;
-use SAML2\DOMDocumentFactory;
-use SAML2\Response;
-use SAML2\Response\Exception\PreconditionNotMetException;
-use SAML2\Response\Processor;
+use SimpleSAML\SAML2\Configuration\Destination;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Response\Exception\PreconditionNotMetException;
+use SimpleSAML\SAML2\Response\Processor;
+use SimpleSAML\SAML2\XML\saml\Assertion;
+use SimpleSAML\SAML2\XML\samlp\Response;
+use SimpleSAML\XML\DOMDocumentFactory;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Entity\ServiceProviderRepository;
@@ -78,7 +78,7 @@ class PostBinding implements HttpBinding
         try {
             $assertions = $this->responseProcessor->process(
                 $serviceProvider,
-                $identityProvider,
+                $identityProvider->getConfiguration(),
                 new Destination($serviceProvider->getAssertionConsumerUrl()),
                 new Response($asXml->documentElement)
             );

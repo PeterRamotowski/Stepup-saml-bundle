@@ -18,8 +18,8 @@
 
 namespace Surfnet\SamlBundle\SAML2\Response;
 
-use SAML2\Assertion;
-use SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\XML\saml\Assertion;
+use SimpleSAML\SAML2\XML\saml\NameID;
 use Surfnet\SamlBundle\SAML2\Attribute\AttributeDictionary;
 use Surfnet\SamlBundle\SAML2\Attribute\AttributeSetInterface;
 use Surfnet\SamlBundle\SAML2\Attribute\ConfigurableAttributeSetFactory;

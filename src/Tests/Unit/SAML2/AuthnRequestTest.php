@@ -22,9 +22,9 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use SAML2\AuthnRequest as SAML2AuthnRequest;
-use SAML2\DOMDocumentFactory;
-use SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
+use SimpleSAML\XML\DOMDocumentFactory;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
 
 class AuthnRequestTest extends TestCase

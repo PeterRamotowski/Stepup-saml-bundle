@@ -18,7 +18,7 @@
 
 namespace Surfnet\SamlBundle\SAML2\Attribute;
 
-use SAML2\Assertion;
+use SimpleSAML\SAML2\XML\saml\Assertion;
 use Surfnet\SamlBundle\Exception\InvalidArgumentException;
 use Surfnet\SamlBundle\Exception\LogicException;
 use Surfnet\SamlBundle\Exception\UnknownUrnException;

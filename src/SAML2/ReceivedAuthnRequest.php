@@ -19,12 +19,12 @@
 namespace Surfnet\SamlBundle\SAML2;
 
 use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\AuthnRequest as SAML2AuthnRequest;
-use SAML2\Constants;
-use SAML2\DOMDocumentFactory;
-use SAML2\Message;
-use SAML2\XML\saml\Issuer;
-use SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\XML\saml\Issuer;
+use SimpleSAML\SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
+use SimpleSAML\SAML2\XML\samlp\MessageFactory;
+use SimpleSAML\XML\DOMDocumentFactory;
 use Surfnet\SamlBundle\Exception\InvalidArgumentException;
 use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\SAML2\Extensions\ExtensionsMapperTrait;
@@ -54,7 +54,7 @@ final class ReceivedAuthnRequest
             throw new RuntimeException('The SAML message can not be read from the document');
         }
 
-        $authnRequest = Message::fromXML($document->firstChild);
+        $authnRequest = MessageFactory::fromXML($document->firstChild);
 
         if (!$authnRequest instanceof SAML2AuthnRequest) {
             throw new RuntimeException(sprintf(

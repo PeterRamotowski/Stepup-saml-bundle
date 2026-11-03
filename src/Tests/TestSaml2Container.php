@@ -20,7 +20,7 @@ namespace Surfnet\SamlBundle\Tests;
 
 use BadMethodCallException;
 use Psr\Log\LoggerInterface;
-use SAML2\Compat\AbstractContainer;
+use SimpleSAML\SAML2\Compat\AbstractContainer;
 
 class TestSaml2Container extends AbstractContainer
 {

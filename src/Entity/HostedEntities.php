@@ -18,7 +18,7 @@
 
 namespace Surfnet\SamlBundle\Entity;
 
-use SAML2\Configuration\PrivateKey;
+use SimpleSAML\SAML2\Configuration\PrivateKey;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\Routing\RouterInterface;
 use function array_key_exists;

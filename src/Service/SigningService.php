@@ -19,12 +19,12 @@
 namespace Surfnet\SamlBundle\Service;
 
 use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\Certificate\KeyLoader as PublicKeyLoader;
-use SAML2\Certificate\PrivateKey;
-use SAML2\Certificate\PrivateKeyLoader;
-use SAML2\Certificate\X509;
-use SAML2\Configuration\PrivateKey as PrivateKeyFile;
-use SAML2\Utils;
+use SimpleSAML\SAML2\Certificate\KeyLoader as PublicKeyLoader;
+use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
+use SimpleSAML\SAML2\Certificate\X509;
+use SimpleSAML\SAML2\Configuration\PrivateKey as PrivateKeyFile;
+use SimpleSAML\SAML2\Utils;
+use SimpleSAML\XMLSecurity\Key\PrivateKey;
 use Surfnet\SamlBundle\Signing\KeyPair;
 use Surfnet\SamlBundle\Signing\Signable;
 

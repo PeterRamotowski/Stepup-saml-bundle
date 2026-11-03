@@ -18,7 +18,7 @@
 
 namespace Surfnet\SamlBundle\Entity;
 
-use SAML2\Configuration\ServiceProvider as ServiceProviderConfiguration;
+use SimpleSAML\SAML2\Configuration\ServiceProvider as ServiceProviderConfiguration;
 
 class ServiceProvider extends ServiceProviderConfiguration
 {

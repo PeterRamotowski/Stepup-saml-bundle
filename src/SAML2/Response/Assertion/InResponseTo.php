@@ -18,7 +18,7 @@
 
 namespace Surfnet\SamlBundle\SAML2\Response\Assertion;
 
-use SAML2\Assertion;
+use SimpleSAML\SAML2\XML\saml\Assertion;
 
 class InResponseTo
 {

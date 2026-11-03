@@ -20,9 +20,9 @@ namespace Surfnet\SamlBundle\Security\Authentication;
 
 use Mockery;
 use PHPUnit\Framework\TestCase;
-use SAML2\Assertion;
-use SAML2\Configuration\PrivateKey;
-use SAML2\XML\saml\Issuer;
+use SimpleSAML\SAML2\Configuration\PrivateKey;
+use SimpleSAML\SAML2\XML\saml\Assertion;
+use SimpleSAML\SAML2\XML\saml\Issuer;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\PostBinding;

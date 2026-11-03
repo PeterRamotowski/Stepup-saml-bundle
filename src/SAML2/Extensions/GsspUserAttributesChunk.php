@@ -20,7 +20,7 @@ namespace Surfnet\SamlBundle\SAML2\Extensions;
 use DOMDocument;
 use DOMElement;
 use RuntimeException;
-use SAML2\Utils;
+use SimpleSAML\SAML2\Utils;
 
 class GsspUserAttributesChunk extends Chunk
 {

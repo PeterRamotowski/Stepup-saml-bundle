@@ -19,7 +19,7 @@
 namespace Surfnet\SamlBundle\SAML2\Attribute;
 
 use ArrayIterator;
-use SAML2\Assertion;
+use SimpleSAML\SAML2\XML\saml\Assertion;
 use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\Exception\UnknownUrnException;
 use Surfnet\SamlBundle\SAML2\Attribute\Filter\AttributeFilter;

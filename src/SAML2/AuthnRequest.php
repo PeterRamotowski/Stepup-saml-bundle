@@ -18,9 +18,9 @@
 
 namespace Surfnet\SamlBundle\SAML2;
 
-use SAML2\AuthnRequest as SAML2AuthnRequest;
-use SAML2\Constants;
-use SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use Surfnet\SamlBundle\SAML2\Extensions\ExtensionsMapperTrait;
 
 class AuthnRequest

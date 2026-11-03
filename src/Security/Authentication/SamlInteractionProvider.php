@@ -18,7 +18,7 @@
 
 namespace Surfnet\SamlBundle\Security\Authentication;
 
-use SAML2\Assertion;
+use SimpleSAML\SAML2\XML\saml\Assertion;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\PostBinding;
