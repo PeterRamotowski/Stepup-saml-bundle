@@ -18,11 +18,11 @@
 
 namespace Surfnet\SamlBundle\Tests\Unit\SAML2;
 
+use DOMDocument;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use SimpleSAML\SAML2\XML\saml\NameID;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use SimpleSAML\XML\DOMDocumentFactory;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
@@ -107,12 +107,25 @@ AUTHNREQUEST_IS_PASSIVE_F_AND_FORCE_AUTHN;
     public function setting_the_subject_generates_valid_xml(string $nameId, ?string $format): void
     {
         $domDocument = DOMDocumentFactory::fromString($this->authRequestNoSubject);
-        $request     = new SAML2AuthnRequest($domDocument->documentElement);
+        $request     = SAML2AuthnRequest::fromXML($domDocument->documentElement);
 
         $authnRequest = AuthnRequest::createNew($request);
         $authnRequest->setSubject($nameId, $format);
 
-        $this->assertXmlStringEqualsXmlString($this->authRequestWithSubject, $authnRequest->getUnsignedXML());
+        $this->assertSame(
+            self::canonicalXml($this->authRequestWithSubject),
+            self::canonicalXml($authnRequest->getUnsignedXML())
+        );
+    }
+
+    // saml2 v7 declares namespaces on the elements that use them; exclusive C14N makes that placement irrelevant.
+    private static function canonicalXml(string $xml): string
+    {
+        $document = new DOMDocument();
+        $document->preserveWhiteSpace = false;
+        $document->loadXML($xml);
+
+        return $document->C14N(true);
     }
 
     #[Test]
@@ -120,16 +133,12 @@ AUTHNREQUEST_IS_PASSIVE_F_AND_FORCE_AUTHN;
     public function the_nameid_and_format_can_be_retrieved_from_the_authnrequest(): void
     {
         $domDocument = DOMDocumentFactory::fromString($this->authRequestWithSubject);
-        $request     = new SAML2AuthnRequest($domDocument->documentElement);
+        $request     = SAML2AuthnRequest::fromXML($domDocument->documentElement);
 
         $authnRequest = AuthnRequest::createNew($request);
 
-        $nameId = new NameID();
-        $nameId->setValue('user@example.org');
-        $nameId->setFormat('urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified');
-
-        $this->assertEquals($nameId->getValue(), $authnRequest->getNameId());
-        $this->assertEquals($nameId->getFormat(), $authnRequest->getNameIdFormat());
+        $this->assertEquals('user@example.org', $authnRequest->getNameId());
+        $this->assertEquals('urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified', $authnRequest->getNameIdFormat());
     }
 
     #[Test]
@@ -137,7 +146,7 @@ AUTHNREQUEST_IS_PASSIVE_F_AND_FORCE_AUTHN;
     public function the_acs_url_can_be_retrieved_from_the_authnrequest(): void
     {
         $domDocument = DOMDocumentFactory::fromString($this->authRequestWithSubject);
-        $request     = new SAML2AuthnRequest($domDocument->documentElement);
+        $request     = SAML2AuthnRequest::fromXML($domDocument->documentElement);
 
         $authnRequest = AuthnRequest::createNew($request);
 
@@ -150,7 +159,7 @@ AUTHNREQUEST_IS_PASSIVE_F_AND_FORCE_AUTHN;
     public function is_passive_and_force_authn_can_be_retrieved_from_the_authnrequest(string $xml, bool $isPassive, bool $forceAuthn): void
     {
         $domDocument = DOMDocumentFactory::fromString($xml);
-        $request     = new SAML2AuthnRequest($domDocument->documentElement);
+        $request     = SAML2AuthnRequest::fromXML($domDocument->documentElement);
         $authnRequest = AuthnRequest::createNew($request);
 
         $this->assertEquals($isPassive, $authnRequest->isPassive());
@@ -168,13 +177,9 @@ AUTHNREQUEST_IS_PASSIVE_F_AND_FORCE_AUTHN;
 
     public static function provideNameIDAndFormatCombinations(): array
     {
-        $nameId = new NameID();
-        $nameId->setValue('user@example.org');
-        $nameId->setFormat('urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified');
-
         return [
-            'NameID without Format' => [$nameId->getValue(), null],
-            'NameID with Format'    => [$nameId->getValue(), $nameId->getFormat()]
+            'NameID without Format' => ['user@example.org', null],
+            'NameID with Format'    => ['user@example.org', 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified']
         ];
     }
 }

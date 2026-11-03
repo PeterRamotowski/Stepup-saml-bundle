@@ -19,11 +19,13 @@ namespace Surfnet\SamlBundle\SAML2\Extensions;
 
 use DOMDocument;
 use DOMElement;
+use DOMNode;
 use RuntimeException;
-use SimpleSAML\SAML2\Utils;
 
 class GsspUserAttributesChunk extends Chunk
 {
+    private const SAML_ASSERTION_NAMESPACE = 'urn:oasis:names:tc:SAML:2.0:assertion';
+
     public function __construct(?DOMElement $value = null)
     {
         $doc = new DOMDocument("1.0", "UTF-8");
@@ -43,12 +45,31 @@ class GsspUserAttributesChunk extends Chunk
 
     public function getAttributeValue(string $attributeName): ?string
     {
-        $xpath = sprintf(
-            'saml_assertion:Attribute[@Name="%s"]/saml_assertion:AttributeValue',
-            $attributeName
-        );
-        $result = Utils::xpQuery($this->getValue(), $xpath);
-        return count($result) ? $result[0]->textContent : null;
+        foreach ($this->getValue()->childNodes as $attribute) {
+            if (!self::isSamlAssertionElement($attribute, 'Attribute')
+                || $attribute->getAttribute('Name') !== $attributeName
+            ) {
+                continue;
+            }
+
+            foreach ($attribute->childNodes as $value) {
+                if (self::isSamlAssertionElement($value, 'AttributeValue')) {
+                    return $value->textContent;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @phpstan-assert-if-true DOMElement $node
+     */
+    private static function isSamlAssertionElement(DOMNode $node, string $localName): bool
+    {
+        return $node instanceof DOMElement
+            && $node->namespaceURI === self::SAML_ASSERTION_NAMESPACE
+            && $node->localName === $localName;
     }
 
     public function addAttribute(string $name, string $format, string $value): void

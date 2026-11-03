@@ -224,9 +224,9 @@ AUTHNREQUEST_NO_SUBJECT;
     public function a_decoded_saml_request_can_be_acquired_from_a_received_authn_request_query_string(): void
     {
         $domDocument          = DOMDocumentFactory::fromString($this->authRequestNoSubject);
-        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->firstChild);
+        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->documentElement);
 
-        $requestAsXml   = $unsignedAuthnRequest->toUnsignedXML()->ownerDocument->saveXML();
+        $requestAsXml   = $unsignedAuthnRequest->toXML()->ownerDocument->saveXml();
         $encodedRequest = base64_encode(gzdeflate($requestAsXml));
 
         $rawQuery = ReceivedAuthnRequestQueryString::PARAMETER_REQUEST . '=' . urlencode($encodedRequest);

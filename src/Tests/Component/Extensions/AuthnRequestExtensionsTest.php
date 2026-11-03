@@ -91,9 +91,9 @@ class AuthnRequestExtensionsTest extends TestCase
 
         self::assertInstanceOf(GsspUserAttributesChunk::class, $retrievedChunk);
 
-        self::assertStringEqualsFile(
-            __DIR__ . '/written_extensions.xml',
-            $authnRequest->getUnsignedXML()
+        self::assertSame(
+            self::canonicalXml((string) file_get_contents(__DIR__ . '/written_extensions.xml')),
+            self::canonicalXml($authnRequest->getUnsignedXML())
         );
 
         self::assertEquals(
@@ -127,9 +127,9 @@ class AuthnRequestExtensionsTest extends TestCase
         $privateKey->loadKey($keyData);
 
         $domDocument          = DOMDocumentFactory::fromString(file_get_contents(__DIR__ . $source));
-        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->firstChild);
+        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->documentElement);
 
-        $requestAsXml   = $unsignedAuthnRequest->toUnsignedXML()->ownerDocument->saveXML();
+        $requestAsXml   = $unsignedAuthnRequest->toXML()->ownerDocument->saveXml();
         $encodedRequest = base64_encode(gzdeflate($requestAsXml));
         $queryParams    = [AuthnRequest::PARAMETER_REQUEST => $encodedRequest];
 
@@ -138,7 +138,7 @@ class AuthnRequestExtensionsTest extends TestCase
         $toSign = $prepareDataToSign($queryParams);
         $signature = $customSignature === null ? base64_encode((string) $privateKey->signData($toSign)) : base64_encode($customSignature);
 
-        $saml2AuthnRequest = SAML2AuthnRequest::fromXML($unsignedAuthnRequest->toUnsignedXML());
+        $saml2AuthnRequest = $unsignedAuthnRequest;
 
         return AuthnRequest::createSigned(
             $saml2AuthnRequest,
@@ -167,5 +167,15 @@ class AuthnRequestExtensionsTest extends TestCase
         }
 
         return $ret;
+    }
+
+    // saml2 v7 declares namespaces on the elements that use them; exclusive C14N makes that placement irrelevant.
+    private static function canonicalXml(string $xml): string
+    {
+        $document = new DOMDocument();
+        $document->preserveWhiteSpace = false;
+        $document->loadXML($xml);
+
+        return $document->C14N(true);
     }
 }

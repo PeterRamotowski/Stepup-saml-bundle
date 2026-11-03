@@ -23,17 +23,27 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use SimpleSAML\SAML2\Compat\ContainerSingleton;
+use SimpleSAML\SAML2\Compat\MockContainer;
 use SimpleSAML\SAML2\Configuration\PrivateKey;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
 use Surfnet\SamlBundle\SAML2\AuthnRequestFactory;
+use Symfony\Component\Clock\MockClock;
 use Symfony\Component\HttpFoundation\Request;
 
 class AuthnRequestFactoryTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
+
+    protected function setUp(): void
+    {
+        $container = new MockContainer();
+        $container->setClock(new MockClock('2026-11-03T12:00:00Z'));
+        ContainerSingleton::setContainer($container);
+    }
 
     #[Test]
     #[Group('saml2')]

@@ -47,7 +47,7 @@ class RedirectBinding implements HttpBinding
     {
         $query = $this->getAuthnRequestQueryString($request);
 
-        $authnRequest = ReceivedAuthnRequest::from($query->getDecodedSamlRequest());
+        $authnRequest = ReceivedAuthnRequest::fromHttpRedirectBinding($query->getDecodedSamlRequest());
 
         /**
          * Defence in depth, unsigned requests do not require the Destination attribute to be set
@@ -87,7 +87,7 @@ class RedirectBinding implements HttpBinding
             );
         }
 
-        $authnRequest = ReceivedAuthnRequest::from($query->getDecodedSamlRequest());
+        $authnRequest = ReceivedAuthnRequest::fromHttpRedirectBinding($query->getDecodedSamlRequest());
 
         /**
          * 3.4.5.2 Security Considerations

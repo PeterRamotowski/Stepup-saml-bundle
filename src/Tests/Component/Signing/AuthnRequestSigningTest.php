@@ -254,9 +254,9 @@ AUTHNREQUEST_NO_SUBJECT;
         $privateKey->loadKey($keyData);
 
         $domDocument          = DOMDocumentFactory::fromString($this->authRequestNoSubject);
-        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->firstChild);
+        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->documentElement);
 
-        $requestAsXml   = $unsignedAuthnRequest->toUnsignedXML()->ownerDocument->saveXML();
+        $requestAsXml   = $unsignedAuthnRequest->toXML()->ownerDocument->saveXml();
         $encodedRequest = base64_encode(gzdeflate($requestAsXml));
         $queryParams    = [AuthnRequest::PARAMETER_REQUEST => $encodedRequest];
 
@@ -265,7 +265,7 @@ AUTHNREQUEST_NO_SUBJECT;
         $toSign = $prepareDataToSign($queryParams);
         $signature = $customSignature === null ? base64_encode((string) $privateKey->signData($toSign)) : base64_encode($customSignature);
 
-        $saml2AuthnRequest = SAML2AuthnRequest::fromXML($unsignedAuthnRequest->toUnsignedXML());
+        $saml2AuthnRequest = $unsignedAuthnRequest;
 
         return AuthnRequest::createSigned(
             $saml2AuthnRequest,
@@ -289,8 +289,8 @@ AUTHNREQUEST_NO_SUBJECT;
     private function createEncodedSamlRequest(): string
     {
         $domDocument          = DOMDocumentFactory::fromString($this->authRequestNoSubject);
-        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->firstChild);
-        $requestAsXml         = $unsignedAuthnRequest->toUnsignedXML()->ownerDocument->saveXML();
+        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->documentElement);
+        $requestAsXml         = $unsignedAuthnRequest->toXML()->ownerDocument->saveXml();
 
         return base64_encode(gzdeflate($requestAsXml));
     }

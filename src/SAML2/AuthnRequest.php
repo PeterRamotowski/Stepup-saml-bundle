@@ -18,13 +18,14 @@
 
 namespace Surfnet\SamlBundle\SAML2;
 
-use SimpleSAML\SAML2\Constants;
-use SimpleSAML\SAML2\XML\saml\NameID;
+use RobRichards\XMLSecLibs\XMLSecurityKey;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
+use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\SAML2\Extensions\ExtensionsMapperTrait;
 
 class AuthnRequest
 {
+    use AuthnRequestAccessorsTrait;
     use ExtensionsMapperTrait;
 
     final public const PARAMETER_RELAY_STATE = 'RelayState';
@@ -38,7 +39,11 @@ class AuthnRequest
 
     private ?string $signatureAlgorithm = null;
 
-    private function __construct(private readonly SAML2AuthnRequest $request)
+    private ?string $relayState = null;
+
+    private ?XMLSecurityKey $signingKey = null;
+
+    private function __construct(private SAML2AuthnRequest $request)
     {
         $this->loadExtensionsFromSaml2AuthNRequest();
     }
@@ -54,7 +59,7 @@ class AuthnRequest
         $authnRequest = new self($request);
         $authnRequest->rawRequest = $rawRequest;
         if ($relayState !== '' && $relayState !== '0') {
-            $authnRequest->request->setRelayState($relayState);
+            $authnRequest->relayState = $relayState;
         }
 
         return $authnRequest;
@@ -73,7 +78,7 @@ class AuthnRequest
         $authnRequest = new self($request);
         $authnRequest->rawRequest = $rawRequest;
         if ($relayState) {
-            $authnRequest->request->setRelayState($relayState);
+            $authnRequest->relayState = $relayState;
         }
         $authnRequest->signature = base64_decode($signature, true);
         $authnRequest->signatureAlgorithm = $signatureAlgorithm;
@@ -100,72 +105,29 @@ class AuthnRequest
         );
     }
 
-    public static function createNew(SAML2AuthnRequest $req): self
-    {
-        return new self($req);
-    }
-
-    public function getAuthenticationContextClassRef(): ?string
-    {
-        $authnContext = $this->request->getRequestedAuthnContext();
-
-        if (!is_array($authnContext) || !array_key_exists('AuthnContextClassRef', $authnContext)) {
-            return null;
+    public static function createNew(
+        SAML2AuthnRequest $req,
+        ?XMLSecurityKey $signingKey = null,
+        ?string $relayState = null
+    ): self {
+        $authnRequest = new self($req);
+        $authnRequest->signingKey = $signingKey;
+        if ($relayState !== null && $relayState !== '') {
+            $authnRequest->relayState = $relayState;
         }
 
-        return reset($authnContext['AuthnContextClassRef']) ?: null;
-    }
-
-    public function setAuthenticationContextClassRef($authnClassRef): void
-    {
-        $authnContext = ['AuthnContextClassRef' => [$authnClassRef]];
-        $this->request->setRequestedAuthnContext($authnContext);
+        return $authnRequest;
     }
 
     public function getNameId(): ?string
     {
-        $nameId = $this->request->getNameId();
+        $nameId = $this->getRequestNameId()?->getContent()->getValue();
 
-        if ($nameId->getValue() === '' || $nameId->getValue() === '0') {
+        if ($nameId === null || $nameId === '' || $nameId === '0') {
             return null;
         }
 
-        return $nameId->getValue();
-    }
-
-    public function getNameIdFormat(): ?string
-    {
-        $nameId = $this->request->getNameId();
-
-        if (!$nameId->getFormat()) {
-            return null;
-        }
-
-        return $nameId->getFormat();
-    }
-
-    public function setSubject(string $nameId, ?string $format = null): void
-    {
-        $nameIdVo = new NameID;
-        $nameIdVo->setValue($nameId);
-        $nameIdVo->setFormat(($format ?: Constants::NAMEID_UNSPECIFIED));
-
-        $this->request->setNameId($nameIdVo);
-    }
-
-    public function getRequestId(): string
-    {
-        return $this->request->getId();
-    }
-
-    public function isPassive(): bool
-    {
-        return $this->request->getIsPassive();
-    }
-
-    public function isForceAuthn(): bool
-    {
-        return $this->request->getForceAuthn();
+        return $nameId;
     }
 
     public function isSigned(): bool
@@ -175,20 +137,19 @@ class AuthnRequest
 
     public function getAssertionConsumerServiceURL(): ?string
     {
-        return $this->request->getAssertionConsumerServiceURL();
+        return $this->request->getAssertionConsumerServiceURL()?->getValue();
     }
 
     public function getDestination(): string
     {
-        return $this->request->getDestination();
+        return $this->request->getDestination()?->getValue()
+            ?? throw new RuntimeException('The AuthnRequest has no Destination');
     }
 
-    /**
-     * @return string
-     */
     public function getServiceProvider(): string
     {
-        return $this->request->getIssuer()->getValue();
+        return $this->request->getIssuer()?->getContent()->getValue()
+            ?? throw new RuntimeException('The AuthnRequest has no Issuer');
     }
 
     /**
@@ -204,25 +165,14 @@ class AuthnRequest
         return $this->signatureAlgorithm;
     }
 
-    public function getUnsignedXML(): string
-    {
-        return $this->request->toUnsignedXML()->ownerDocument->saveXML();
-    }
-
-    public function setScoping(array $requesterIds, int $proxyCount = 10): void
-    {
-        $this->request->setRequesterID($requesterIds);
-        $this->request->setProxyCount($proxyCount);
-    }
-
     public function buildRequestQuery(): string
     {
         $requestAsXml = $this->getUnsignedXML();
         $encodedRequest = base64_encode(gzdeflate($requestAsXml));
         $queryParams = [self::PARAMETER_REQUEST => $encodedRequest];
 
-        if ($this->request->getRelayState() !== null) {
-            $queryParams[self::PARAMETER_RELAY_STATE] = $this->request->getRelayState();
+        if ($this->relayState !== null) {
+            $queryParams[self::PARAMETER_RELAY_STATE] = $this->relayState;
         }
 
         return $this->signRequestQuery($queryParams);
@@ -232,8 +182,8 @@ class AuthnRequest
     {
         $queryParams = [self::PARAMETER_REQUEST => $this->rawRequest];
 
-        if ($this->request->getRelayState()) {
-            $queryParams[self::PARAMETER_RELAY_STATE] = $this->request->getRelayState();
+        if ($this->relayState) {
+            $queryParams[self::PARAMETER_RELAY_STATE] = $this->relayState;
         }
 
         $queryParams[self::PARAMETER_SIGNATURE_ALGORITHM] = $this->signatureAlgorithm;
@@ -243,7 +193,10 @@ class AuthnRequest
 
     private function signRequestQuery(array $queryParams): string
     {
-        $securityKey = $this->request->getSignatureKey();
+        $securityKey = $this->signingKey;
+        if (!$securityKey instanceof XMLSecurityKey) {
+            throw new RuntimeException('Cannot build a signed request query: no signing key was provided');
+        }
         $queryParams[self::PARAMETER_SIGNATURE_ALGORITHM] = $securityKey->type;
 
         $toSign = http_build_query($queryParams);
