@@ -147,6 +147,23 @@ MESSAGE;
         $this->postBinding->receiveSignedAuthnRequestFrom($request);
     }
 
+    public function test_receive_signed_authn_request_protocol_violation_is_a_bad_request(): void
+    {
+        $requestUri = 'https://stepup.example.com/sso';
+        $message = str_replace(
+            'nameid-format:transient"',
+            'nameid-format:transient" AllowCreate="true"',
+            sprintf(self::RAW_MESSAGE, 'https://stepup.example.com/sso')
+        );
+        $request = new Request([], ['SAMLRequest' => base64_encode($message)], [], [], [], ['REQUEST_URI' => $requestUri]);
+        $request->setMethod(Request::METHOD_POST);
+
+        self::expectException(BadRequestHttpException::class);
+        self::expectExceptionMessage('Invalid AuthnRequest: AllowCreate');
+
+        $this->postBinding->receiveSignedAuthnRequestFrom($request);
+    }
+
     public function test_receive_signed_authn_request_request_uri_must_start_with_destination(): void
     {
         $requestUri = 'https://stepup.example.com/sso';

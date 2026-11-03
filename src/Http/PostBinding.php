@@ -22,6 +22,7 @@ use LogicException;
 use RuntimeException;
 use SimpleSAML\SAML2\Configuration\Destination;
 use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Exception\ProtocolViolationException;
 use SimpleSAML\SAML2\Response\Exception\PreconditionNotMetException;
 use SimpleSAML\SAML2\Response\Processor;
 use SimpleSAML\SAML2\XML\saml\Assertion;
@@ -120,9 +121,8 @@ class PostBinding implements HttpBinding
             ReceivedAuthnRequestPost::PARAMETER_REQUEST => $request->request->get('SAMLRequest'),
             ReceivedAuthnRequestPost::PARAMETER_RELAY_STATE => $request->request->get('RelayState'),
         ];
-        $receivedRequest = ReceivedAuthnRequestPost::parse($params);
-
-        $authnRequest = ReceivedAuthnRequest::from($receivedRequest->getDecodedSamlRequest());
+        $receivedRequest = $this->parseAuthnRequestPost($params);
+        $authnRequest = $receivedRequest->getAuthnRequest();
 
         /**
          * 3.4.5.2 Security Considerations
@@ -153,6 +153,7 @@ class PostBinding implements HttpBinding
         }
 
         $serviceProvider = $this->entityRepository->getServiceProvider($authnRequest->getServiceProvider());
+        $checkedIssuer = $authnRequest->getServiceProvider();
 
         // Note: verifyIsSignedBy throws an Exception when the signature does not match.
         if (!$this->signatureVerifier->verifyIsSignedBy($receivedRequest, $serviceProvider)) {
@@ -161,7 +162,36 @@ class PostBinding implements HttpBinding
             );
         }
 
+        // Verification continues with the signed content; it must match what was checked above.
+        $this->assertSignedContentWasChecked($authnRequest, $destination, $checkedIssuer);
+
         return $authnRequest;
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     */
+    private function parseAuthnRequestPost(array $params): ReceivedAuthnRequestPost
+    {
+        try {
+            return ReceivedAuthnRequestPost::parse($params);
+        } catch (ProtocolViolationException $e) {
+            throw new BadRequestHttpException(sprintf('Invalid AuthnRequest: %s', $e->getMessage()), $e);
+        }
+    }
+
+    private function assertSignedContentWasChecked(
+        ReceivedAuthnRequest $authnRequest,
+        string $checkedDestination,
+        ?string $checkedIssuer
+    ): void {
+        if ($authnRequest->getDestination() !== $checkedDestination
+            || $authnRequest->getServiceProvider() !== $checkedIssuer
+        ) {
+            throw new SignatureValidationFailedException(
+                'The signed AuthnRequest does not match the Destination or Issuer that was checked'
+            );
+        }
     }
 
     private function getFullRequestUri(Request $request): string

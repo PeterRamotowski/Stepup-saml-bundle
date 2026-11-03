@@ -18,16 +18,11 @@
 
 namespace Surfnet\SamlBundle\SAML2;
 
-use OpenSSLAsymmetricKey;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
-use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
-use SimpleSAML\XMLSecurity\CryptoEncoding\PEM;
 use SimpleSAML\XMLSecurity\Key\PublicKey;
-use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\SAML2\Extensions\ExtensionsMapperTrait;
+use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
 
 final class ReceivedAuthnRequest
 {
@@ -84,28 +79,17 @@ final class ReceivedAuthnRequest
     /**
      * @throws \Exception when the signature is invalid
      */
-    public function verify(XMLSecurityKey $key): bool
+    public function verify(PublicKey $publicKey): bool
     {
         $signature = $this->request->getSignature();
         if ($signature === null) {
             return false;
         }
 
-        $certificate = $key->getX509Certificate();
-        if ($certificate) {
-            $publicKey = (new X509Certificate(PEM::fromString($certificate)))->getPublicKey();
-        } else {
-            $details = $key->key instanceof OpenSSLAsymmetricKey ? openssl_pkey_get_details($key->key) : false;
-            if ($details === false) {
-                throw new RuntimeException('The verification key has no usable public key');
-            }
-            $publicKey = new PublicKey(PEM::fromString($details['key']));
-        }
-
-        $verifier = (new SignatureAlgorithmFactory(
-            ContainerSingleton::getInstance()->getBlacklistedEncryptionAlgorithms()
-                ?? SignatureAlgorithmFactory::DEFAULT_BLACKLIST
-        ))->getAlgorithm($signature->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue(), $publicKey);
+        $verifier = SignatureAlgorithms::factory()->getAlgorithm(
+            $signature->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue(),
+            $publicKey
+        );
 
         // Continue with the request as covered by the signature, not the document it was found in.
         $verified = $this->request->verify($verifier);

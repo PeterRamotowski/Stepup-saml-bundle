@@ -19,7 +19,8 @@
 namespace Surfnet\SamlBundle\Http;
 
 use Exception;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
+use SimpleSAML\XMLSecurity\Key\PublicKey;
+use Surfnet\SamlBundle\Exception\LogicException;
 use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
 use Surfnet\SamlBundle\SAML2\ReceivedAuthnRequest;
 
@@ -78,10 +79,18 @@ final class ReceivedAuthnRequestPost implements SignatureVerifiable
     }
 
     /**
-     * @throws Exception when signature is invalid (@see SAML2\Utils::validateSignature)
+     * @throws Exception when the signature is invalid
      */
-    public function verify(XMLSecurityKey $key): bool
+    public function verify(PublicKey $key): bool
     {
         return $this->receivedRequest->verify($key);
+    }
+
+    /**
+     * After a successful verify(), this is the request as covered by the signature.
+     */
+    public function getAuthnRequest(): ReceivedAuthnRequest
+    {
+        return $this->receivedRequest ?? throw new LogicException('The AuthnRequest has not been parsed');
     }
 }

@@ -22,11 +22,15 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
 use SimpleSAML\SAML2\Certificate\KeyLoader;
 use SimpleSAML\SAML2\Certificate\X509;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use SimpleSAML\XML\DOMDocumentFactory;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
+use SimpleSAML\XMLSecurity\Constants as C;
+use SimpleSAML\XMLSecurity\CryptoEncoding\PEM;
+use SimpleSAML\XMLSecurity\Key\PrivateKey;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
 use Surfnet\SamlBundle\Signing\SignatureVerifier;
@@ -148,18 +152,17 @@ AUTHNREQUEST_NO_SUBJECT;
         $signatureVerifier = new SignatureVerifier(new KeyLoader, new NullLogger);
         $certificate       = X509::createFromCertificateData($this->getPublicKey());
         $keyData           = file_get_contents(__DIR__.'/../../../Resources/keys/development_privatekey.pem');
-        $privateKey        = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-        $privateKey->loadKey($keyData);
+        $privateKey        = self::createSigner($keyData);
 
         $queryParameters = [
             ReceivedAuthnRequestQueryString::PARAMETER_REQUEST => $this->createEncodedSamlRequest(),
-            ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE_ALGORITHM => $privateKey->type
+            ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE_ALGORITHM => $privateKey->getAlgorithmId()
         ];
 
         $dataToSignWithDefaultEncoding = $this->encodeDataToSignWithPhpsHttpBuildQuery($queryParameters);
         $queryParametersWithDefaultEncoding = $queryParameters;
         $queryParametersWithDefaultEncoding[ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE] = base64_encode(
-            (string) $privateKey->signData($dataToSignWithDefaultEncoding)
+            (string) $privateKey->sign($dataToSignWithDefaultEncoding)
         );
         $rawQueryWithDefaultEncoding = $this->encodeDataToSignWithPhpsHttpBuildQuery($queryParametersWithDefaultEncoding);
         $queryStringWithDefaultEncoding = ReceivedAuthnRequestQueryString::parse($rawQueryWithDefaultEncoding);
@@ -167,7 +170,7 @@ AUTHNREQUEST_NO_SUBJECT;
         $dataToSignWithCustomEncoding = $this->encodeDataToSignWithCustomHttpQueryEncoding($queryParameters);
         $queryParametersWithCustomEncoding = $queryParameters;
         $queryParametersWithCustomEncoding[ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE] = base64_encode(
-            (string) $privateKey->signData($dataToSignWithCustomEncoding)
+            (string) $privateKey->sign($dataToSignWithCustomEncoding)
         );
         $rawQueryWithCustomEncoding = $this->encodeDataToSignWithCustomHttpQueryEncoding(
             $queryParametersWithCustomEncoding
@@ -202,12 +205,11 @@ AUTHNREQUEST_NO_SUBJECT;
         $signatureVerifier = new SignatureVerifier(new KeyLoader, new NullLogger);
         $certificate       = X509::createFromCertificateData($this->getPublicKey());
         $keyData           = file_get_contents(__DIR__.'/../../../Resources/keys/development_privatekey.pem');
-        $privateKey        = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-        $privateKey->loadKey($keyData);
+        $privateKey        = self::createSigner($keyData);
 
         $queryParameters = [
             ReceivedAuthnRequestQueryString::PARAMETER_REQUEST => $this->createEncodedSamlRequest(),
-            ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE_ALGORITHM => $privateKey->type,
+            ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE_ALGORITHM => $privateKey->getAlgorithmId(),
             ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE => base64_encode('fake-key')
         ];
 
@@ -250,8 +252,7 @@ AUTHNREQUEST_NO_SUBJECT;
     private function createSignedAuthnRequest(callable $prepareDataToSign, ?string $customSignature = null): AuthnRequest
     {
         $keyData    = file_get_contents(__DIR__.'/../../../Resources/keys/development_privatekey.pem');
-        $privateKey = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-        $privateKey->loadKey($keyData);
+        $privateKey = self::createSigner($keyData);
 
         $domDocument          = DOMDocumentFactory::fromString($this->authRequestNoSubject);
         $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->documentElement);
@@ -260,10 +261,10 @@ AUTHNREQUEST_NO_SUBJECT;
         $encodedRequest = base64_encode(gzdeflate($requestAsXml));
         $queryParams    = [AuthnRequest::PARAMETER_REQUEST => $encodedRequest];
 
-        $queryParams[AuthnRequest::PARAMETER_SIGNATURE_ALGORITHM] = $privateKey->type;
+        $queryParams[AuthnRequest::PARAMETER_SIGNATURE_ALGORITHM] = $privateKey->getAlgorithmId();
 
         $toSign = $prepareDataToSign($queryParams);
-        $signature = $customSignature === null ? base64_encode((string) $privateKey->signData($toSign)) : base64_encode($customSignature);
+        $signature = $customSignature === null ? base64_encode((string) $privateKey->sign($toSign)) : base64_encode($customSignature);
 
         $saml2AuthnRequest = $unsignedAuthnRequest;
 
@@ -272,7 +273,7 @@ AUTHNREQUEST_NO_SUBJECT;
             $encodedRequest,
             null,
             $signature,
-            (string) $privateKey->type
+            (string) $privateKey->getAlgorithmId()
         );
     }
 
@@ -293,5 +294,13 @@ AUTHNREQUEST_NO_SUBJECT;
         $requestAsXml         = $unsignedAuthnRequest->toXML()->ownerDocument->saveXml();
 
         return base64_encode(gzdeflate($requestAsXml));
+    }
+
+    private static function createSigner(string $privateKeyPem): SignatureAlgorithmInterface
+    {
+        return (new SignatureAlgorithmFactory())->getAlgorithm(
+            C::SIG_RSA_SHA256,
+            new PrivateKey(PEM::fromString($privateKeyPem))
+        );
     }
 }

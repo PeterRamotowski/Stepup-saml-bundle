@@ -18,8 +18,8 @@
 
 namespace Surfnet\SamlBundle\SAML2;
 
-use RobRichards\XMLSecLibs\XMLSecurityKey;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
 use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\SAML2\Extensions\ExtensionsMapperTrait;
 
@@ -41,7 +41,7 @@ class AuthnRequest
 
     private ?string $relayState = null;
 
-    private ?XMLSecurityKey $signingKey = null;
+    private ?SignatureAlgorithmInterface $signer = null;
 
     private function __construct(private SAML2AuthnRequest $request)
     {
@@ -107,11 +107,11 @@ class AuthnRequest
 
     public static function createNew(
         SAML2AuthnRequest $req,
-        ?XMLSecurityKey $signingKey = null,
+        ?SignatureAlgorithmInterface $signer = null,
         ?string $relayState = null
     ): self {
         $authnRequest = new self($req);
-        $authnRequest->signingKey = $signingKey;
+        $authnRequest->signer = $signer;
         if ($relayState !== null && $relayState !== '') {
             $authnRequest->relayState = $relayState;
         }
@@ -193,14 +193,15 @@ class AuthnRequest
 
     private function signRequestQuery(array $queryParams): string
     {
-        $securityKey = $this->signingKey;
-        if (!$securityKey instanceof XMLSecurityKey) {
-            throw new RuntimeException('Cannot build a signed request query: no signing key was provided');
+        $signer = $this->signer;
+        if (!$signer instanceof SignatureAlgorithmInterface) {
+            throw new RuntimeException('Cannot build a signed request query: no signer was provided');
         }
-        $queryParams[self::PARAMETER_SIGNATURE_ALGORITHM] = $securityKey->type;
+        $queryParams[self::PARAMETER_SIGNATURE_ALGORITHM] = $signer->getAlgorithmId();
 
+        // The HTTP-Redirect signature covers these exact encoded query bytes, not the XML message.
         $toSign = http_build_query($queryParams);
-        $signature = $securityKey->signData($toSign);
+        $signature = $signer->sign($toSign);
 
         return $toSign . '&Signature=' . urlencode(base64_encode((string) $signature));
     }

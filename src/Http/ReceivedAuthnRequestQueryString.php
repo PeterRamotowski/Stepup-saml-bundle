@@ -18,11 +18,12 @@
 
 namespace Surfnet\SamlBundle\Http;
 
-use RobRichards\XMLSecLibs\XMLSecurityKey;
+use SimpleSAML\XMLSecurity\Key\PublicKey;
 use Surfnet\SamlBundle\Exception\LogicException;
 use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\Http\Exception\InvalidReceivedAuthnRequestQueryStringException;
 use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
+use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
 
 final class ReceivedAuthnRequestQueryString implements SignatureVerifiable
 {
@@ -226,9 +227,10 @@ final class ReceivedAuthnRequestQueryString implements SignatureVerifiable
         return $this->getSignedQueryString();
     }
 
-    public function verify(XMLSecurityKey $key): bool
+    public function verify(PublicKey $key): bool
     {
-        $isVerified = $key->verifySignature($this->getSignedRequestPayload(), $this->getDecodedSignature());
-        return $isVerified === 1;
+        $verifier = SignatureAlgorithms::factory()->getAlgorithm($this->getSignatureAlgorithm(), $key);
+
+        return $verifier->verify($this->getSignedRequestPayload(), $this->getDecodedSignature());
     }
 }

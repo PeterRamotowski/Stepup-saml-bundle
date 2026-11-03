@@ -50,11 +50,14 @@ class MetadataFactory
         $metadata = $this->getMetadata();
         $keyPair = $this->buildKeyPairFrom($this->metadataConfiguration);
 
-        $metadata->document = DOMDocumentFactory::create();
-        $metadata->document->loadXML($this->templateEngine->render(
+        $xml = $this->templateEngine->render(
             '@SurfnetSaml/Metadata/metadata.xml.twig',
             ['metadata' => $metadata]
-        ));
+        );
+        if ($xml === '') {
+            throw new RuntimeException('The metadata template rendered an empty document');
+        }
+        $metadata->document = DOMDocumentFactory::fromString($xml);
 
         $this->signingService->sign($metadata, $keyPair);
 

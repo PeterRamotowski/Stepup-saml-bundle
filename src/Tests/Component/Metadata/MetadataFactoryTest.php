@@ -24,6 +24,12 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use SimpleSAML\SAML2\Certificate\KeyLoader;
 use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
+use SimpleSAML\SAML2\Compat\ContainerSingleton;
+use SimpleSAML\SAML2\Compat\MockContainer;
+use SimpleSAML\SAML2\XML\md\EntityDescriptor;
+use SimpleSAML\XML\DOMDocumentFactory;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use Surfnet\SamlBundle\Metadata\MetadataConfiguration;
 use Surfnet\SamlBundle\Metadata\MetadataFactory;
 use Surfnet\SamlBundle\Service\SigningService;
@@ -57,10 +63,16 @@ class MetadataFactoryTest extends TestCase
         $this->router = m::mock(RouterInterface::class);
         $this->router->shouldReceive('generate')->andReturn('https://foobar.example.com');
         $this->xsdValidator = new XsdValidator();
+
+        $container = new MockContainer();
+        $container->setBlacklistedAlgorithms(null);
+        ContainerSingleton::setContainer($container);
     }
 
-    private function assertXmlIsValidAgainstXsd(DOMDocument $document, string $xsdPath): void
+    private function assertXmlIsValidAgainstXsd(string $xml, string $xsdPath): void
     {
+        $document = new DOMDocument();
+        $document->loadXML($xml);
         $errors = $this->xsdValidator->validate($document, $xsdPath);
 
         if (!empty($errors)) {
@@ -130,7 +142,7 @@ XML;
         $this->buildFactory($metadataConfiguration);
         $metadata = $this->factory->generate();
         self::assertEquals($expectedResult, $metadata->__toString());
-        $this->assertXmlIsValidAgainstXsd($metadata->document, __DIR__ . '/xsd/metadata.xsd');
+        $this->assertXmlIsValidAgainstXsd((string) $metadata, __DIR__ . '/xsd/metadata.xsd');
     }
 
     public function test_builds_idp_metadata_signed(): void
@@ -147,7 +159,15 @@ XML;
         $signingService = new SigningService($keyLoader, $privateKeyLoader);
         $this->buildFactory($metadataConfiguration, $signingService);
         $metadata = $this->factory->generate();
-        $this->assertXmlIsValidAgainstXsd($metadata->document, __DIR__ . '/xsd/metadata.xsd');
+        $this->assertXmlIsValidAgainstXsd((string) $metadata, __DIR__ . '/xsd/metadata.xsd');
+
+        // Verify through saml2's own parser, independently of the bundle's signing code.
+        $entityDescriptor = EntityDescriptor::fromXML(DOMDocumentFactory::fromString((string) $metadata)->documentElement);
+        $verifier = (new SignatureAlgorithmFactory())->getAlgorithm(
+            $entityDescriptor->getSignature()->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue(),
+            X509Certificate::fromFile(__DIR__ . '/keys/entity.crt')->getPublicKey()
+        );
+        self::assertInstanceOf(EntityDescriptor::class, $entityDescriptor->verify($verifier));
     }
 
     private function buildFactory(MetadataConfiguration $metadata, ?SigningService $signingService = null): void

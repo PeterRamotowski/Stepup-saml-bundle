@@ -18,15 +18,18 @@
 
 namespace Surfnet\SamlBundle\Service;
 
-use RobRichards\XMLSecLibs\XMLSecurityKey;
 use SimpleSAML\SAML2\Certificate\KeyLoader as PublicKeyLoader;
 use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
 use SimpleSAML\SAML2\Certificate\X509;
 use SimpleSAML\SAML2\Configuration\PrivateKey as PrivateKeyFile;
-use SimpleSAML\SAML2\Utils;
+use SimpleSAML\XMLSecurity\Constants as C;
 use SimpleSAML\XMLSecurity\Key\PrivateKey;
+use Surfnet\SamlBundle\Exception\RuntimeException;
+use Surfnet\SamlBundle\Signing\CertificateKeys;
+use Surfnet\SamlBundle\Signing\DomElementSigner;
 use Surfnet\SamlBundle\Signing\KeyPair;
 use Surfnet\SamlBundle\Signing\Signable;
+use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
 
 class SigningService
 {
@@ -41,13 +44,12 @@ class SigningService
         $publicKey = $this->loadPublicKeyFromFile($keyPair->publicKeyFile);
         $privateKey = $this->loadPrivateKeyFromFile($keyPair->privateKeyFile);
 
-        $key = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-        $key->loadKey($privateKey->getKeyAsString());
+        $signer = SignatureAlgorithms::factory()->getAlgorithm(C::SIG_RSA_SHA256, $privateKey);
 
-        Utils::insertSignature(
-            $key,
-            [$publicKey->getCertificate()],
+        DomElementSigner::signEnveloped(
             $signable->getRootDomElement(),
+            $signer,
+            CertificateKeys::toKeyInfo($publicKey),
             $signable->getAppendBeforeNode()
         );
 
@@ -59,9 +61,12 @@ class SigningService
      */
     public function loadPublicKeyFromFile(string $publicKeyFile): X509
     {
-        $this->publicKeyLoader->loadCertificateFile($publicKeyFile);
+        $this->publicKeyLoader->loadCertificateData(CertificateKeys::certificateDataFromFile($publicKeyFile));
         $keyCollection = $this->publicKeyLoader->getKeys();
         $publicKey = $keyCollection->getOnlyElement();
+        if (!$publicKey instanceof X509) {
+            throw new RuntimeException(sprintf('Could not load a certificate from "%s"', $publicKeyFile));
+        }
 
         // remove it from the collection so we can reuse the publicKeyLoader for consecutive signing
         $keyCollection->remove($publicKey);

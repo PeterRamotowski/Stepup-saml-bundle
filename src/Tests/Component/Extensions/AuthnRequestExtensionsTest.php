@@ -23,14 +23,16 @@ use DOMDocument;
 use DOMNode;
 use DOMXPath;
 use PHPUnit\Framework\TestCase;
-use RobRichards\XMLSecLibs\XMLSecEnc;
-use RobRichards\XMLSecLibs\XMLSecurityDSig;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\Compat\MockContainer;
 use SimpleSAML\SAML2\Constants;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use SimpleSAML\XML\DOMDocumentFactory;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
+use SimpleSAML\XMLSecurity\Constants as C;
+use SimpleSAML\XMLSecurity\CryptoEncoding\PEM;
+use SimpleSAML\XMLSecurity\Key\PrivateKey;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
 use Surfnet\SamlBundle\SAML2\Extensions\Extensions;
 use Surfnet\SamlBundle\SAML2\Extensions\GsspUserAttributesChunk;
@@ -123,8 +125,7 @@ class AuthnRequestExtensionsTest extends TestCase
         string $source = '/with_extensions.xml'
     ): AuthnRequest {
         $keyData    = file_get_contents(__DIR__.'/../../../Resources/keys/development_privatekey.pem');
-        $privateKey = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-        $privateKey->loadKey($keyData);
+        $privateKey = self::createSigner($keyData);
 
         $domDocument          = DOMDocumentFactory::fromString(file_get_contents(__DIR__ . $source));
         $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->documentElement);
@@ -133,10 +134,10 @@ class AuthnRequestExtensionsTest extends TestCase
         $encodedRequest = base64_encode(gzdeflate($requestAsXml));
         $queryParams    = [AuthnRequest::PARAMETER_REQUEST => $encodedRequest];
 
-        $queryParams[AuthnRequest::PARAMETER_SIGNATURE_ALGORITHM] = $privateKey->type;
+        $queryParams[AuthnRequest::PARAMETER_SIGNATURE_ALGORITHM] = $privateKey->getAlgorithmId();
 
         $toSign = $prepareDataToSign($queryParams);
-        $signature = $customSignature === null ? base64_encode((string) $privateKey->signData($toSign)) : base64_encode($customSignature);
+        $signature = $customSignature === null ? base64_encode((string) $privateKey->sign($toSign)) : base64_encode($customSignature);
 
         $saml2AuthnRequest = $unsignedAuthnRequest;
 
@@ -145,7 +146,7 @@ class AuthnRequestExtensionsTest extends TestCase
             $encodedRequest,
             null,
             $signature,
-            $privateKey->type
+            $privateKey->getAlgorithmId()
         );
     }
 
@@ -157,8 +158,8 @@ class AuthnRequestExtensionsTest extends TestCase
         $xpCache->registerNamespace('saml_protocol', Constants::NS_SAMLP);
         $xpCache->registerNamespace('saml', Constants::NS_SAML);
         $xpCache->registerNamespace('saml_metadata', Constants::NS_MD);
-        $xpCache->registerNamespace('ds', XMLSecurityDSig::XMLDSIGNS);
-        $xpCache->registerNamespace('xenc', XMLSecEnc::XMLENCNS);
+        $xpCache->registerNamespace('ds', C::NS_XDSIG);
+        $xpCache->registerNamespace('xenc', C::NS_XENC);
 
         $results = $xpCache->query($query, $node);
         $ret = [];
@@ -177,5 +178,13 @@ class AuthnRequestExtensionsTest extends TestCase
         $document->loadXML($xml);
 
         return $document->C14N(true);
+    }
+
+    private static function createSigner(string $privateKeyPem): SignatureAlgorithmInterface
+    {
+        return (new SignatureAlgorithmFactory())->getAlgorithm(
+            C::SIG_RSA_SHA256,
+            new PrivateKey(PEM::fromString($privateKeyPem))
+        );
     }
 }
