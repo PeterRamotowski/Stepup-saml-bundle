@@ -18,17 +18,16 @@
 
 namespace Surfnet\SamlBundle\Tests\Unit\SAML2\Response\Assertion;
 
-use Mockery as m;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use SimpleSAML\SAML2\XML\saml\Assertion;
 use Surfnet\SamlBundle\Exception\UnknownUrnException;
 use Surfnet\SamlBundle\SAML2\Attribute\Attribute;
 use Surfnet\SamlBundle\SAML2\Attribute\AttributeDefinition;
 use Surfnet\SamlBundle\SAML2\Attribute\AttributeDictionary;
 use Surfnet\SamlBundle\SAML2\Response\AssertionAdapter;
+use Surfnet\SamlBundle\Tests\TestAssertions;
 
 class AssertionAdapterTest extends TestCase
 {
@@ -47,8 +46,7 @@ class AssertionAdapterTest extends TestCase
             'urn:oid:0.0.0.0.0.0.0.0.0'
         );
 
-        $assertion = m::mock(Assertion::class);
-        $assertion->shouldReceive('getAttributes')->andReturn([$maceAttributeUrn => $maceAttributeValue]);
+        $assertion = TestAssertions::create([$maceAttributeUrn => $maceAttributeValue]);
 
         $dictionary = new AttributeDictionary();
         $dictionary->addAttributeDefinition($existingMaceAttributeDefinition);
@@ -74,8 +72,7 @@ class AssertionAdapterTest extends TestCase
             $oidAttributeUrn
         );
 
-        $assertion = m::mock(Assertion::class);
-        $assertion->shouldReceive('getAttributes')->andReturn([$oidAttributeUrn => $oidAttributeValue]);
+        $assertion = TestAssertions::create([$oidAttributeUrn => $oidAttributeValue]);
 
         $dictionary = new AttributeDictionary();
         $dictionary->addAttributeDefinition($existingOidAttributeDefinition);
@@ -102,8 +99,7 @@ class AssertionAdapterTest extends TestCase
             $oidAttributeUrn
         );
 
-        $assertion = m::mock(Assertion::class);
-        $assertion->shouldReceive('getAttributes')->andReturn([$oidAttributeUrn => $oidAttributeValue]);
+        $assertion = TestAssertions::create([$oidAttributeUrn => $oidAttributeValue]);
 
         $attributeExpectedNotToBeContained = new Attribute($existingOidAttributeDefinition, $oidAttributeValue);
 
@@ -119,8 +115,7 @@ class AssertionAdapterTest extends TestCase
     #[Group('AssertionAdapter')]
     public function attribute_set_is_empty_if_no_attributes_found(): void
     {
-        $assertion = m::mock(Assertion::class);
-        $assertion->shouldReceive('getAttributes')->andReturn([]);
+        $assertion = TestAssertions::create([]);
 
         $dictionary = new AttributeDictionary();
 
@@ -142,8 +137,7 @@ class AssertionAdapterTest extends TestCase
             $oidAttributeUrn
         );
 
-        $assertion = m::mock(Assertion::class);
-        $assertion->shouldReceive('getAttributes')->andReturn([$oidAttributeUrn => $oidAttributeValue]);
+        $assertion = TestAssertions::create([$oidAttributeUrn => $oidAttributeValue]);
 
         $dictionary = new AttributeDictionary();
         $dictionary->addAttributeDefinition($existingOidAttributeDefinition);
@@ -168,8 +162,7 @@ class AssertionAdapterTest extends TestCase
             $oidAttributeUrn
         );
 
-        $assertion = m::mock(Assertion::class);
-        $assertion->shouldReceive('getAttributes')->andReturn([
+        $assertion = TestAssertions::create([
             $oidAttributeUrn  => $attributeValue,
             $maceAttributeUrn => $attributeValue
         ]);

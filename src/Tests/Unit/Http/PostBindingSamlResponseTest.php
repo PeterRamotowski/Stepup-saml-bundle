@@ -24,8 +24,6 @@ use PHPUnit\Framework\TestCase;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\Compat\MockContainer;
 use SimpleSAML\SAML2\Response\Exception\PreconditionNotMetException;
-use SimpleSAML\SAML2\Response\Processor;
-use SimpleSAML\SAML2\Utilities\ArrayCollection;
 use SimpleSAML\SAML2\XML\saml\Assertion;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
@@ -34,7 +32,9 @@ use Surfnet\SamlBundle\Http\Exception\AuthnFailedSamlResponseException;
 use Surfnet\SamlBundle\Http\Exception\NoAuthnContextSamlResponseException;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
 use Surfnet\SamlBundle\Http\PostBinding;
+use Surfnet\SamlBundle\SAML2\Response\ResponseProcessor;
 use Surfnet\SamlBundle\Signing\SignatureVerifier;
+use Surfnet\SamlBundle\Tests\TestAssertions;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
@@ -54,11 +54,11 @@ MESSAGE;
 
     private m\MockInterface&SignatureVerifier $signatureVerifier;
 
-    private m\MockInterface&Processor $processor;
+    private m\MockInterface&ResponseProcessor $processor;
 
     public function setUp(): void
     {
-        $this->processor = m::mock(Processor::class);
+        $this->processor = m::mock(ResponseProcessor::class);
         $this->entityRepository = m::mock(ServiceProviderRepository::class);
         $this->signatureVerifier = m::mock(SignatureVerifier::class);
 
@@ -90,9 +90,7 @@ MESSAGE;
             ->shouldReceive('getAssertionConsumerUrl')
             ->andReturn('https://stepup.example.com/acs')
         ;
-        $assertions = m::mock(ArrayCollection::class);
-        $assertions->shouldReceive('getOnlyElement')->andReturn(m::mock(Assertion::class));
-        $this->processor->shouldReceive('process')->andReturn($assertions);
+        $this->processor->shouldReceive('process')->andReturn(TestAssertions::create());
         $samlResponse = $this->postBinding->processResponse($request, $idp, $sp);
 
         self::assertInstanceOf(Assertion::class, $samlResponse);
@@ -150,8 +148,6 @@ MESSAGE;
         $sp
             ->shouldReceive('getAssertionConsumerUrl')
             ->andReturn('https://stepup.example.com/acs');
-        $assertions = m::mock(ArrayCollection::class);
-        $assertions->shouldReceive('getOnlyElement')->andReturn(m::mock(Assertion::class));
         $this->processor->shouldReceive('process')->andThrow(new PreconditionNotMetException('urn:oasis:names:tc:SAML:2.0:status:NoAuthnContext'));
 
         self::expectException(NoAuthnContextSamlResponseException::class);
@@ -167,8 +163,6 @@ MESSAGE;
         $sp
             ->shouldReceive('getAssertionConsumerUrl')
             ->andReturn('https://stepup.example.com/acs');
-        $assertions = m::mock(ArrayCollection::class);
-        $assertions->shouldReceive('getOnlyElement')->andReturn(m::mock(Assertion::class));
         $this->processor->shouldReceive('process')->andThrow(new PreconditionNotMetException('urn:oasis:names:tc:SAML:2.0:status:AuthnFailed'));
 
         self::expectException(AuthnFailedSamlResponseException::class);
@@ -184,8 +178,6 @@ MESSAGE;
         $sp
             ->shouldReceive('getAssertionConsumerUrl')
             ->andReturn('https://stepup.example.com/acs');
-        $assertions = m::mock(ArrayCollection::class);
-        $assertions->shouldReceive('getOnlyElement')->andReturn(m::mock(Assertion::class));
         $this->processor->shouldReceive('process')->andThrow(new PreconditionNotMetException('Arbitrary'));
 
         self::expectException(PreconditionNotMetException::class);

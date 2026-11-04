@@ -23,6 +23,7 @@ use SimpleSAML\SAML2\XML\saml\Assertion;
 use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\Exception\UnknownUrnException;
 use Surfnet\SamlBundle\SAML2\Attribute\Filter\AttributeFilter;
+use Surfnet\SamlBundle\SAML2\Response\AssertionValues;
 use Traversable;
 
 class AttributeSet implements AttributeSetFactory, AttributeSetInterface
@@ -36,7 +37,7 @@ class AttributeSet implements AttributeSetFactory, AttributeSetInterface
     {
         $attributeSet = new AttributeSet();
 
-        foreach ($assertion->getAttributes() as $urn => $attributeValue) {
+        foreach (AssertionValues::attributes($assertion) as $urn => $attributeValue) {
             try {
                 $attribute = new Attribute(
                     $attributeDictionary->getAttributeDefinitionByUrn($urn),

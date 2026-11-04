@@ -24,12 +24,12 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\Compat\MockContainer;
-use SimpleSAML\SAML2\XML\saml\Assertion;
 use stdClass;
 use Surfnet\SamlBundle\Exception\InvalidArgumentException;
 use Surfnet\SamlBundle\SAML2\Attribute\AttributeDictionary;
 use Surfnet\SamlBundle\SAML2\Attribute\AttributeSet;
 use Surfnet\SamlBundle\SAML2\Attribute\ConfigurableAttributeSetFactory;
+use Surfnet\SamlBundle\Tests\TestAssertions;
 use Surfnet\SamlBundle\Tests\Unit\SAML2\Attribute\Mock\DummyAttributeSet;
 
 class ConfigurableAttributeSetFactoryTest extends TestCase
@@ -47,7 +47,7 @@ class ConfigurableAttributeSetFactoryTest extends TestCase
     public function which_attribute_set_is_created_from_a_saml_assertion_is_configurable(): void
     {
         ConfigurableAttributeSetFactory::configureWhichAttributeSetToCreate(self::DUMMY_ATTRIBUTE_SET_CLASS);
-        $attributeSet = ConfigurableAttributeSetFactory::createFrom(new Assertion, new AttributeDictionary);
+        $attributeSet = ConfigurableAttributeSetFactory::createFrom(TestAssertions::create(), new AttributeDictionary);
         ConfigurableAttributeSetFactory::configureWhichAttributeSetToCreate(AttributeSet::class);
 
         $this->assertInstanceOf(self::DUMMY_ATTRIBUTE_SET_CLASS, $attributeSet);

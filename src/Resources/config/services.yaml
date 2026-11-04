@@ -126,11 +126,13 @@ services:
         alias: surfnet_saml.saml2.privatekeyloader
 
     surfnet_saml.saml2.response_processor:
-        class: SimpleSAML\SAML2\Response\Processor
+        class: Surfnet\SamlBundle\SAML2\Response\ResponseProcessor
         arguments:
+            - '@surfnet_saml.saml2.keyloader'
+            - '@surfnet_saml.saml2.privatekeyloader'
             - '@logger'
 
-    SimpleSAML\SAML2\Response\Processor:
+    Surfnet\SamlBundle\SAML2\Response\ResponseProcessor:
         alias: surfnet_saml.saml2.response_processor
 
     surfnet_saml.logger:

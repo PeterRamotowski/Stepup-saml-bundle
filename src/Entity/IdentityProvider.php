@@ -31,6 +31,9 @@ class IdentityProvider implements CertificateProvider, DecryptionProvider, Entit
 {
     private readonly IdentityProviderConfiguration $configuration;
 
+    /**
+     * @param array<string, mixed> $configuration
+     */
     public function __construct(array $configuration)
     {
         $this->configuration = new IdentityProviderConfiguration($configuration);
@@ -56,6 +59,9 @@ class IdentityProvider implements CertificateProvider, DecryptionProvider, Entit
         return $this->configuration->has($key);
     }
 
+    /**
+     * @return array<mixed>|\Traversable<mixed>|null
+     */
     public function getKeys()
     {
         return $this->configuration->getKeys();
@@ -71,7 +77,7 @@ class IdentityProvider implements CertificateProvider, DecryptionProvider, Entit
         return $this->configuration->getCertificateFile();
     }
 
-    public function getCertificateFingerprints()
+    public function getCertificateFingerprints(): mixed
     {
         return $this->configuration->getCertificateFingerprints();
     }
@@ -91,6 +97,9 @@ class IdentityProvider implements CertificateProvider, DecryptionProvider, Entit
         return $this->configuration->getPrivateKey($name, $required);
     }
 
+    /**
+     * @return array<mixed>|null
+     */
     public function getBlacklistedAlgorithms(): ?array
     {
         return $this->configuration->getBlacklistedAlgorithms();

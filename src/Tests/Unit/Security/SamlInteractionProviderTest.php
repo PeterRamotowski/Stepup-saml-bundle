@@ -20,15 +20,17 @@ namespace Surfnet\SamlBundle\Security\Authentication;
 
 use Mockery;
 use PHPUnit\Framework\TestCase;
+use SimpleSAML\SAML2\Compat\ContainerSingleton;
+use SimpleSAML\SAML2\Compat\MockContainer;
 use SimpleSAML\SAML2\Configuration\PrivateKey;
-use SimpleSAML\SAML2\XML\saml\Assertion;
-use SimpleSAML\SAML2\XML\saml\Issuer;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\PostBinding;
 use Surfnet\SamlBundle\Http\RedirectBinding;
 use Surfnet\SamlBundle\Security\Exception\UnexpectedIssuerException;
+use Surfnet\SamlBundle\Tests\TestAssertions;
 use Surfnet\SamlBundle\Tests\Unit\Security\FakeAuthencationStateHandler;
+use Symfony\Component\Clock\MockClock;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -44,6 +46,9 @@ class SamlInteractionProviderTest extends TestCase
     private SamlInteractionProvider $samlInteractionProvider;
     public function setUp(): void
     {
+        $container = new MockContainer();
+        $container->setClock(new MockClock('2026-11-04T12:00:00Z'));
+        ContainerSingleton::setContainer($container);
         $this->serviceProvider = Mockery::mock(ServiceProvider::class);
         $this->identityProvider = Mockery::mock(IdentityProvider::class);
         $this->redirectBinding = Mockery::mock(RedirectBinding::class);
@@ -79,16 +84,13 @@ class SamlInteractionProviderTest extends TestCase
         $this->samlAuthenticationStateHandler = FakeAuthencationStateHandler::createWithoutRequestId();
         $this->createProvider();
 
-        $privateKey = Mockery::mock(PrivateKey::class);
-        $privateKey->shouldReceive('isFile')->andReturnFalse();
-        $privateKey->shouldReceive('getContents')->andReturn('pk-contents');
-        $privateKey->shouldReceive('getPassPhrase')->andReturn('');
+        $privateKey = new PrivateKey(__DIR__ . '/../../../Resources/keys/development_privatekey.pem', PrivateKey::NAME_DEFAULT);
 
         $this->serviceProvider->shouldReceive('getEntityId')->andReturn('https://sp');
         $this->serviceProvider->shouldReceive('getAssertionConsumerUrl')->andReturn('https://sp/acs');
         $this->serviceProvider->shouldReceive('getPrivateKey')->andReturn($privateKey);
 
-        $this->identityProvider->shouldReceive('getSsoUrl')->andReturn('https://idp/sso');
+        $this->identityProvider->shouldReceive('getSsoUrl')->andReturn('https://idp.example.com/sso');
 
         $redirectResponse = Mockery::mock(RedirectResponse::class);
         $this->redirectBinding->shouldReceive('createResponseFor')->andReturn($redirectResponse);
@@ -102,11 +104,8 @@ class SamlInteractionProviderTest extends TestCase
         $this->samlAuthenticationStateHandler = FakeAuthencationStateHandler::createWithRequestId('req-id');
         $this->createProvider();
         $request = Mockery::mock(Request::class);
-        $processedAssertion = Mockery::mock(Assertion::class);
-        $issuer = new Issuer();
-        $issuer->setValue('https://idp');
+        $processedAssertion = TestAssertions::create(issuer: 'https://idp');
         $this->identityProvider->shouldReceive('getEntityId')->andReturn('https://idp');
-        $processedAssertion->shouldReceive('getIssuer')->andReturn($issuer);
         $this->postBinding->shouldReceive('processResponse')->andReturn($processedAssertion);
         $assertion = $this->samlInteractionProvider->processSamlResponse($request);
 
@@ -117,11 +116,8 @@ class SamlInteractionProviderTest extends TestCase
         $this->samlAuthenticationStateHandler = FakeAuthencationStateHandler::createWithRequestId('req-id');
         $this->createProvider();
         $request = Mockery::mock(Request::class);
-        $processedAssertion = Mockery::mock(Assertion::class);
-        $issuer = new Issuer();
-        $issuer->setValue('https://idp');
+        $processedAssertion = TestAssertions::create(issuer: 'https://idp');
         $this->identityProvider->shouldReceive('getEntityId')->andReturn('https://idp-2');
-        $processedAssertion->shouldReceive('getIssuer')->andReturn($issuer);
         $this->postBinding->shouldReceive('processResponse')->andReturn($processedAssertion);
 
         $this->expectException(UnexpectedIssuerException::class);

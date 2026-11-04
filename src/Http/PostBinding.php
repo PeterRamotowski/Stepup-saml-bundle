@@ -20,11 +20,9 @@ namespace Surfnet\SamlBundle\Http;
 
 use LogicException;
 use RuntimeException;
-use SimpleSAML\SAML2\Configuration\Destination;
 use SimpleSAML\SAML2\Constants;
 use SimpleSAML\SAML2\Exception\ProtocolViolationException;
 use SimpleSAML\SAML2\Response\Exception\PreconditionNotMetException;
-use SimpleSAML\SAML2\Response\Processor;
 use SimpleSAML\SAML2\XML\saml\Assertion;
 use SimpleSAML\SAML2\XML\samlp\Response;
 use SimpleSAML\XML\DOMDocumentFactory;
@@ -37,6 +35,7 @@ use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
 use Surfnet\SamlBundle\Http\Exception\UnknownServiceProviderException;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
 use Surfnet\SamlBundle\SAML2\ReceivedAuthnRequest;
+use Surfnet\SamlBundle\SAML2\Response\ResponseProcessor;
 use Surfnet\SamlBundle\Signing\SignatureTransformGuard;
 use Surfnet\SamlBundle\Signing\SignatureVerifier;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -49,7 +48,7 @@ use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 class PostBinding implements HttpBinding
 {
     public function __construct(
-        private readonly Processor $responseProcessor,
+        private readonly ResponseProcessor $responseProcessor,
         private readonly SignatureVerifier $signatureVerifier,
         private readonly ?ServiceProviderRepository $entityRepository = null
     ) {
@@ -70,18 +69,24 @@ class PostBinding implements HttpBinding
             throw new BadRequestHttpException('Response must include a SAMLResponse, none found');
         }
 
-        $response = base64_decode($response);
+        $response = base64_decode((string) $response, true);
+        if ($response === false || $response === '') {
+            throw new BadRequestHttpException('The SAMLResponse is not valid base64');
+        }
 
         $asXml    = DOMDocumentFactory::fromString($response);
 
         SignatureTransformGuard::assertNoForbiddenTransforms($asXml);
+        if ($asXml->documentElement === null) {
+            throw new BadRequestHttpException('The SAMLResponse does not contain an XML element');
+        }
 
         try {
-            $assertions = $this->responseProcessor->process(
+            return $this->responseProcessor->process(
                 $serviceProvider,
-                $identityProvider->getConfiguration(),
-                new Destination($serviceProvider->getAssertionConsumerUrl()),
-                new Response($asXml->documentElement)
+                $identityProvider,
+                (string) $serviceProvider->getAssertionConsumerUrl(),
+                Response::fromXML($asXml->documentElement)
             );
         } catch (PreconditionNotMetException $e) {
             $message = $e->getMessage();
@@ -98,8 +103,6 @@ class PostBinding implements HttpBinding
 
             throw $e;
         }
-
-        return $assertions->getOnlyElement();
     }
 
     public function receiveSignedAuthnRequestFrom(Request $request): ReceivedAuthnRequest

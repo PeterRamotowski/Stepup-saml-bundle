@@ -24,13 +24,13 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\Compat\MockContainer;
-use SimpleSAML\SAML2\Response\Processor;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Entity\ServiceProviderRepository;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
 use Surfnet\SamlBundle\Http\Exception\UnknownServiceProviderException;
 use Surfnet\SamlBundle\Http\PostBinding;
 use Surfnet\SamlBundle\SAML2\ReceivedAuthnRequest;
+use Surfnet\SamlBundle\SAML2\Response\ResponseProcessor;
 use Surfnet\SamlBundle\Signing\SignatureVerifier;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
@@ -61,7 +61,7 @@ MESSAGE;
         $this->entityRepository = m::mock(ServiceProviderRepository::class);
         $this->signatureVerifier = m::mock(SignatureVerifier::class);
         $this->postBinding = new PostBinding(
-            m::mock(Processor::class),
+            m::mock(ResponseProcessor::class),
             $this->signatureVerifier,
             $this->entityRepository
         );
@@ -111,7 +111,7 @@ MESSAGE;
         self::expectException(LogicException::class);
         self::expectExceptionMessage('Could not receive AuthnRequest from HTTP Request: a ServiceProviderRepository must be configured');
         $postBinding = new PostBinding(
-            m::mock(Processor::class),
+            m::mock(ResponseProcessor::class),
             $this->signatureVerifier,
             null
         );

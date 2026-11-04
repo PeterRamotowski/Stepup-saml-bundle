@@ -24,6 +24,7 @@ use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\RedirectBinding;
 use Surfnet\SamlBundle\SAML2\AuthnRequestFactory;
+use Surfnet\SamlBundle\SAML2\Response\AssertionValues;
 use Surfnet\SamlBundle\Security\Authentication\Handler\AuthenticationHandler;
 use Surfnet\SamlBundle\Security\Authentication\Passport\Badge\SamlAttributesBadge;
 use Surfnet\SamlBundle\Security\Authentication\Provider\SamlProviderInterface;
@@ -144,7 +145,7 @@ class SamlAuthenticator extends AbstractAuthenticator implements InteractiveAuth
 
         return new SelfValidatingPassport(
             $userBadge,
-            [new SamlAttributesBadge($assertion->getAttributes())]
+            [new SamlAttributesBadge(AssertionValues::attributes($assertion))]
         );
     }
 
