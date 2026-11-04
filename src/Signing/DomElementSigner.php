@@ -57,7 +57,10 @@ final class DomElementSigner
 
         $instance = new self($element);
         $instance->sign($signer, C::C14N_EXCLUSIVE_WITHOUT_COMMENTS, $keyInfo);
-        (void) $instance->doSign($element);
+        // doSign() only returns a canonical copy; the signature is attached to the original element below.
+        // PHPMD cannot parse the (void) cast yet, so the copy is released explicitly.
+        $canonicalCopy = $instance->doSign($element);
+        unset($canonicalCopy);
 
         if (!$instance->signature instanceof Signature) {
             throw new RuntimeException('Signing did not produce a signature');
