@@ -88,6 +88,7 @@ class AuthnRequestFactoryTest extends TestCase
         $pk = new PrivateKey(__DIR__.'/../../../Resources/keys/development_privatekey.pem', 'key-for-test', '');
 
         $sp->shouldReceive('getPrivateKey')->andReturn($pk);
+        $sp->shouldReceive('usesPrivateKeyAgent')->andReturn(false);
 
         $idp = m::mock(IdentityProvider::class);
         $idp->shouldReceive('getSsoUrl')->andReturn('https://example-idp.com/sso');

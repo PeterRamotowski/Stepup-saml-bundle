@@ -22,14 +22,13 @@ use SimpleSAML\SAML2\Certificate\KeyLoader as PublicKeyLoader;
 use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
 use SimpleSAML\SAML2\Certificate\X509;
 use SimpleSAML\SAML2\Configuration\PrivateKey as PrivateKeyFile;
-use SimpleSAML\XMLSecurity\Constants as C;
 use SimpleSAML\XMLSecurity\Key\PrivateKey;
 use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\Signing\CertificateKeys;
 use Surfnet\SamlBundle\Signing\DomElementSigner;
 use Surfnet\SamlBundle\Signing\KeyPair;
 use Surfnet\SamlBundle\Signing\Signable;
-use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
+use Surfnet\SamlBundle\Signing\Signers;
 
 class SigningService
 {
@@ -41,14 +40,17 @@ class SigningService
 
     public function sign(Signable $signable, KeyPair $keyPair): Signable
     {
-        if (!is_string($keyPair->privateKeyFile) || $keyPair->privateKeyFile === '') {
-            throw new RuntimeException('No private key file is configured for signing');
-        }
-
         $publicKey = $this->loadPublicKeyFromFile($keyPair->publicKeyFile);
-        $privateKey = $this->loadPrivateKeyFromFile($keyPair->privateKeyFile);
 
-        $signer = SignatureAlgorithms::factory()->getAlgorithm(C::SIG_RSA_SHA256, $privateKey);
+        if ($keyPair->usePrivateKeyAgent) {
+            $signer = Signers::forAgentCertificate($keyPair->publicKeyFile);
+        } else {
+            if (!is_string($keyPair->privateKeyFile) || $keyPair->privateKeyFile === '') {
+                throw new RuntimeException('No private key file is configured for signing');
+            }
+
+            $signer = Signers::forLocalKey($this->loadPrivateKeyFromFile($keyPair->privateKeyFile));
+        }
 
         DomElementSigner::signEnveloped(
             $signable->getRootDomElement(),

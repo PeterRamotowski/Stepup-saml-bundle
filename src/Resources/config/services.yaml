@@ -131,6 +131,7 @@ services:
             - '@surfnet_saml.saml2.keyloader'
             - '@surfnet_saml.saml2.privatekeyloader'
             - '@logger'
+            - '@?surfnet_saml.private_key_agent.key_map'
 
     Surfnet\SamlBundle\SAML2\Response\ResponseProcessor:
         alias: surfnet_saml.saml2.response_processor

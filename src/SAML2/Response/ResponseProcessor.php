@@ -40,11 +40,18 @@ use SimpleSAML\SAML2\XML\saml\EncryptedAssertion;
 use SimpleSAML\SAML2\XML\saml\EncryptedID;
 use SimpleSAML\SAML2\XML\samlp\Response;
 use SimpleSAML\XMLSecurity\Alg\KeyTransport\KeyTransportAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Alg\KeyTransport\PrivateKeyAgentRSA as PrivateKeyAgentKeyTransport;
+use SimpleSAML\XMLSecurity\Exception\InvalidRequestException as AgentInvalidRequestException;
 use SimpleSAML\XMLSecurity\Key\PrivateKey;
+use SimpleSAML\XMLSecurity\Key\X509Certificate;
+use SimpleSAML\XMLSecurity\XML\ds\X509Certificate as X509CertificateElement;
+use SimpleSAML\XMLSecurity\XML\ds\X509Data;
 use SimpleSAML\XMLSecurity\XML\SignedElementInterface;
 use SimpleSAML\XMLSecurity\XML\xenc\EncryptedKey;
+use Surfnet\SamlBundle\DependencyInjection\PrivateKeyAgentConfiguration;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
+use Surfnet\SamlBundle\PrivateKeyAgent\KeyMap;
 use Surfnet\SamlBundle\SAML2\Response\Validation\SessionNotOnOrAfter;
 use Surfnet\SamlBundle\Signing\CertificateKeys;
 use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
@@ -64,6 +71,7 @@ class ResponseProcessor
         private readonly KeyLoader $keyLoader,
         private readonly PrivateKeyLoader $privateKeyLoader,
         private readonly LoggerInterface $logger,
+        private readonly ?KeyMap $keyMap = null,
     ) {
     }
 
@@ -181,6 +189,10 @@ class ResponseProcessor
                 ?? KeyTransportAlgorithmFactory::DEFAULT_BLACKLIST
         );
 
+        if ($serviceProvider->usesPrivateKeyAgent()) {
+            return $this->decryptWithAgent($encryptedAssertion, $encryptedKeys[0], $algorithm, $factory);
+        }
+
         $lastException = null;
         foreach ($this->privateKeyLoader->loadDecryptionKeys($identityProvider, $serviceProvider) as $key) {
             if (!$key instanceof PrivateKey) {
@@ -195,6 +207,80 @@ class ResponseProcessor
         }
 
         throw new InvalidAssertionException('The assertion could not be decrypted', 0, $lastException);
+    }
+
+    /**
+     * Tries the agent decryption keys, limited to the certificate the EncryptedKey names if it names one.
+     *
+     * Only an agent answer that the key cannot decrypt (HTTP 400) moves on to the next key, which lets an old and
+     * a new key overlap during a rollover. Outages, rejected tokens and unauthorised keys end the attempt.
+     */
+    private function decryptWithAgent(
+        EncryptedAssertion $encryptedAssertion,
+        EncryptedKey $encryptedKey,
+        string $algorithm,
+        KeyTransportAlgorithmFactory $factory,
+    ): Assertion {
+        $certificates = $this->keyMap?->certificatesFor(PrivateKeyAgentConfiguration::OPERATION_DECRYPT) ?? [];
+        if ($certificates === []) {
+            throw new InvalidAssertionException('The service provider uses the private key agent, but no agent key may decrypt');
+        }
+
+        $named = self::namedCertificateFingerprints($encryptedKey);
+        if ($named !== []) {
+            $certificates = array_values(array_filter(
+                $certificates,
+                static fn (X509Certificate $certificate): bool => in_array(KeyMap::fingerprintOf($certificate), $named, true)
+            ));
+            if ($certificates === []) {
+                throw new InvalidAssertionException('The EncryptedKey names a certificate that no agent decryption key has');
+            }
+        }
+
+        $lastException = null;
+        foreach ($certificates as $certificate) {
+            $decryptor = $factory->getAlgorithm($algorithm, $certificate);
+            if (!$decryptor instanceof PrivateKeyAgentKeyTransport) {
+                throw new InvalidAssertionException(sprintf('The private key agent is not registered for "%s"', $algorithm));
+            }
+
+            try {
+                return $encryptedAssertion->decrypt($decryptor);
+            } catch (AgentInvalidRequestException $exception) {
+                $this->logger->debug(sprintf(
+                    'The agent key for certificate %s could not decrypt the assertion',
+                    KeyMap::fingerprintOf($certificate)
+                ));
+                $lastException = $exception;
+            }
+        }
+
+        throw new InvalidAssertionException('The assertion could not be decrypted with any agent key', 0, $lastException);
+    }
+
+    /**
+     * @return list<string> SHA-256 fingerprints of the X509Certificates in the KeyInfo of the EncryptedKey
+     */
+    private static function namedCertificateFingerprints(EncryptedKey $encryptedKey): array
+    {
+        $fingerprints = [];
+        foreach ($encryptedKey->getKeyInfo()?->getInfo() ?? [] as $info) {
+            if (!$info instanceof X509Data) {
+                continue;
+            }
+            foreach ($info->getData() as $data) {
+                if (!$data instanceof X509CertificateElement) {
+                    continue;
+                }
+                $der = base64_decode(preg_replace('/\s+/', '', $data->getContent()->getValue()) ?? '', true);
+                if ($der === false || $der === '') {
+                    throw new InvalidAssertionException('The EncryptedKey names an invalid certificate');
+                }
+                $fingerprints[] = hash('sha256', $der);
+            }
+        }
+
+        return $fingerprints;
     }
 
     private function validate(

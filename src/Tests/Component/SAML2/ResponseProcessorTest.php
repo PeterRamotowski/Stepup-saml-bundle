@@ -18,6 +18,7 @@
 
 namespace Surfnet\SamlBundle\Tests\Component\SAML2;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
@@ -38,14 +39,22 @@ use SimpleSAML\XML\DOMDocumentFactory;
 use SimpleSAML\XMLSecurity\Alg\KeyTransport\KeyTransportAlgorithmFactory;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
 use SimpleSAML\XMLSecurity\Constants as C;
+use SimpleSAML\XMLSecurity\Exception\AgentUnavailableException;
+use SimpleSAML\XMLSecurity\Exception\AuthenticationException;
+use SimpleSAML\XMLSecurity\Exception\AuthorizationException;
+use SimpleSAML\XMLSecurity\Exception\UnknownKeyException;
 use SimpleSAML\XMLSecurity\Key\PrivateKey;
 use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
+use Surfnet\SamlBundle\PrivateKeyAgent\KeyMap;
 use Surfnet\SamlBundle\SAML2\BridgeContainer;
 use Surfnet\SamlBundle\SAML2\Response\AssertionValues;
 use Surfnet\SamlBundle\SAML2\Response\ResponseProcessor;
+use Surfnet\SamlBundle\Signing\CertificateKeys;
+use Surfnet\SamlBundle\Tests\FakePrivateKeyAgent;
 use Symfony\Component\Clock\MockClock;
+use Throwable;
 
 class ResponseProcessorTest extends TestCase
 {
@@ -58,6 +67,34 @@ class ResponseProcessorTest extends TestCase
     private ResponseProcessor $processor;
     private ServiceProvider $serviceProvider;
     private IdentityProvider $identityProvider;
+
+    /**
+     * @var array<string, array{certificate: string, private_key: string}>
+     */
+    private static array $agentKeys = [];
+
+    public static function setUpBeforeClass(): void
+    {
+        $directory = sys_get_temp_dir() . '/surfnet-saml-agent-keys-' . bin2hex(random_bytes(4));
+        mkdir($directory, 0700);
+        self::$agentKeys = [
+            'current' => FakePrivateKeyAgent::generateKeyPair($directory, 'current'),
+            'previous' => FakePrivateKeyAgent::generateKeyPair($directory, 'previous'),
+        ];
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        foreach (self::$agentKeys as $files) {
+            array_map(unlink(...), array_values($files));
+        }
+        rmdir(dirname(self::$agentKeys['current']['certificate']));
+    }
+
+    protected function tearDown(): void
+    {
+        FakePrivateKeyAgent::unregister();
+    }
 
     protected function setUp(): void
     {
@@ -223,6 +260,165 @@ class ResponseProcessorTest extends TestCase
         $this->process($this->response($this->signedAssertion($this->assertion(inResponseTo: '_other'))));
     }
 
+    #[Test]
+    public function an_agent_service_provider_decrypts_with_exactly_one_agent_call(): void
+    {
+        $agent = $this->useAgent();
+
+        $assertion = $this->process($this->response($this->encrypted(
+            $this->signedAssertion($this->assertion()),
+            self::$agentKeys['current']['certificate']
+        )));
+
+        $this->assertSame('john-doe', AssertionValues::nameId($assertion));
+        $this->assertSame(['/v1/decrypt/sp-decryption'], $agent->requests);
+    }
+
+    #[Test]
+    public function during_a_rollover_the_previous_agent_key_still_decrypts(): void
+    {
+        $agent = $this->useAgent();
+
+        $assertion = $this->process($this->response($this->encrypted(
+            $this->signedAssertion($this->assertion()),
+            self::$agentKeys['previous']['certificate']
+        )));
+
+        $this->assertSame('john-doe', AssertionValues::nameId($assertion));
+        $this->assertSame(['/v1/decrypt/sp-decryption', '/v1/decrypt/sp-decryption-previous'], $agent->requests);
+    }
+
+    #[Test]
+    public function a_certificate_named_by_the_encrypted_key_selects_the_agent_key(): void
+    {
+        $agent = $this->useAgent();
+        $previous = self::$agentKeys['previous']['certificate'];
+
+        $assertion = $this->process($this->response($this->encrypted(
+            $this->signedAssertion($this->assertion()),
+            $previous,
+            namedCertificate: $previous
+        )));
+
+        $this->assertSame('john-doe', AssertionValues::nameId($assertion));
+        $this->assertSame(['/v1/decrypt/sp-decryption-previous'], $agent->requests);
+    }
+
+    #[Test]
+    public function a_named_certificate_without_an_agent_decryption_key_is_rejected_without_an_agent_call(): void
+    {
+        $agent = $this->useAgent();
+
+        try {
+            $this->process($this->response($this->encrypted(
+                $this->signedAssertion($this->assertion()),
+                self::$agentKeys['current']['certificate'],
+                namedCertificate: self::KEYS . '/development_publickey.cer'
+            )));
+            $this->fail('An EncryptedKey for an unknown certificate must be rejected.');
+        } catch (InvalidAssertionException $exception) {
+            $this->assertStringContainsString('no agent decryption key', $exception->getMessage());
+        }
+
+        $this->assertSame([], $agent->requests);
+    }
+
+    #[Test]
+    public function an_assertion_that_no_agent_key_can_decrypt_is_rejected(): void
+    {
+        $agent = $this->useAgent();
+
+        try {
+            $this->process($this->response($this->encrypted(
+                $this->signedAssertion($this->assertion()),
+                self::KEYS . '/development_publickey.cer'
+            )));
+            $this->fail('An assertion for another key must be rejected.');
+        } catch (InvalidAssertionException $exception) {
+            $this->assertSame('The assertion could not be decrypted with any agent key', $exception->getMessage());
+        }
+
+        $this->assertCount(2, $agent->requests);
+    }
+
+    /**
+     * @return iterable<string, array{int, class-string<Throwable>}>
+     */
+    public static function agentFailures(): iterable
+    {
+        yield 'unavailable' => [503, AgentUnavailableException::class];
+        yield 'rate limited' => [429, AgentUnavailableException::class];
+        yield 'invalid token' => [401, AuthenticationException::class];
+        yield 'unauthorised key' => [403, AuthorizationException::class];
+        yield 'unknown key' => [404, UnknownKeyException::class];
+    }
+
+    /**
+     * @param class-string<Throwable> $expected
+     */
+    #[Test]
+    #[DataProvider('agentFailures')]
+    public function an_agent_failure_ends_decryption_without_trying_another_key(int $status, string $expected): void
+    {
+        $agent = $this->useAgent();
+        $agent->status = $status;
+
+        try {
+            $this->process($this->response($this->encrypted(
+                $this->signedAssertion($this->assertion()),
+                self::$agentKeys['previous']['certificate']
+            )));
+            $this->fail('An agent failure must fail the decryption.');
+        } catch (Throwable $exception) {
+            $this->assertInstanceOf($expected, $exception);
+            $this->assertStringNotContainsString(FakePrivateKeyAgent::TOKEN, (string) $exception);
+        }
+
+        $this->assertSame(['/v1/decrypt/sp-decryption'], $agent->requests);
+    }
+
+    #[Test]
+    public function an_agent_service_provider_without_agent_decryption_keys_cannot_decrypt(): void
+    {
+        $this->useAgent();
+        $this->processor = new ResponseProcessor(new KeyLoader(), new PrivateKeyLoader(), new NullLogger());
+
+        $this->expectException(InvalidAssertionException::class);
+        $this->expectExceptionMessage('no agent key may decrypt');
+
+        $this->process($this->response($this->encrypted(
+            $this->signedAssertion($this->assertion()),
+            self::$agentKeys['current']['certificate']
+        )));
+    }
+
+    private function useAgent(): FakePrivateKeyAgent
+    {
+        $keyMap = new KeyMap([
+            'sp-decryption' => ['certificate_file' => self::$agentKeys['current']['certificate'], 'operations' => ['decrypt']],
+            'sp-decryption-previous' => [
+                'certificate_file' => self::$agentKeys['previous']['certificate'],
+                'operations' => ['decrypt'],
+            ],
+        ], []);
+        $agent = new FakePrivateKeyAgent([
+            'sp-decryption' => self::$agentKeys['current']['private_key'],
+            'sp-decryption-previous' => self::$agentKeys['previous']['private_key'],
+        ]);
+        $agent->register($keyMap);
+
+        $this->processor = new ResponseProcessor(new KeyLoader(), new PrivateKeyLoader(), new NullLogger(), $keyMap);
+        $this->serviceProvider = new ServiceProvider([
+            'entityId' => self::SP_ENTITY_ID,
+            'assertionConsumerUrl' => self::ACS,
+            'certificateFile' => self::$agentKeys['current']['certificate'],
+            'privateKeys' => [],
+            'privateKeyAgent' => true,
+        ]);
+
+        return $agent;
+    }
+
     private function process(string $responseXml): Assertion
     {
         return $this->processor->process(
@@ -294,16 +490,33 @@ class ResponseProcessorTest extends TestCase
         return $xml->ownerDocument->saveXml($xml);
     }
 
-    private function encrypted(string $assertionXml): string
-    {
+    private function encrypted(
+        string $assertionXml,
+        string $certificateFile = self::KEYS . '/development_publickey.cer',
+        ?string $namedCertificate = null,
+    ): string {
         $assertion = Assertion::fromXML(DOMDocumentFactory::fromString($assertionXml)->documentElement);
         $encryptor = (new KeyTransportAlgorithmFactory())->getAlgorithm(
             C::KEY_TRANSPORT_OAEP_MGF1P,
-            X509Certificate::fromFile(self::KEYS . '/development_publickey.cer')->getPublicKey()
+            X509Certificate::fromFile($certificateFile)->getPublicKey()
         );
         $xml = (new EncryptedAssertion($assertion->encrypt($encryptor)))->toXML();
+        if ($namedCertificate === null) {
+            return $xml->ownerDocument->saveXml($xml);
+        }
 
-        return $xml->ownerDocument->saveXml($xml);
+        // Name the recipient certificate in the EncryptedKey, as some IdPs do.
+        $document = DOMDocumentFactory::fromString($xml->ownerDocument->saveXml($xml));
+        $cipherData = $document->getElementsByTagNameNS(C::NS_XENC, 'EncryptedKey')->item(0)
+            ->getElementsByTagNameNS(C::NS_XENC, 'CipherData')->item(0);
+        $keyInfo = $document->createElementNS(C::NS_XDSIG, 'ds:KeyInfo');
+        $x509Data = $keyInfo->appendChild($document->createElementNS(C::NS_XDSIG, 'ds:X509Data'));
+        $certificateElement = $document->createElementNS(C::NS_XDSIG, 'ds:X509Certificate');
+        $certificateElement->textContent = CertificateKeys::certificateDataFromFile($namedCertificate);
+        $x509Data->appendChild($certificateElement);
+        $cipherData->parentNode->insertBefore($keyInfo, $cipherData);
+
+        return $document->saveXml($document->documentElement);
     }
 
     private function privateKey(): PrivateKey

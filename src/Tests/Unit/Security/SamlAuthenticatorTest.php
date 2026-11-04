@@ -112,6 +112,7 @@ class SamlAuthenticatorTest extends TestCase
         $this->sp->shouldReceive('getAssertionConsumerUrl')->andReturn('https://sp.example.com/acs');
         $this->sp->shouldReceive('getEntityId')->andReturn('https://sp-entity-id');
         $this->sp->shouldReceive('getPrivateKey')->andReturn($privateKey);
+        $this->sp->shouldReceive('usesPrivateKeyAgent')->andReturn(false);
 
         $this->idp->shouldReceive('getSsoUrl')->andReturn('https://idp.example.com/sso');
 

@@ -101,6 +101,7 @@ class MetadataFactory
         $keyPair = new KeyPair();
         $keyPair->privateKeyFile = $metadataConfiguration->privateKey;
         $keyPair->publicKeyFile = $metadataConfiguration->publicKey;
+        $keyPair->usePrivateKeyAgent = $metadataConfiguration->usePrivateKeyAgent;
 
         return $keyPair;
     }

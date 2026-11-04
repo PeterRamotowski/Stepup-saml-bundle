@@ -37,4 +37,6 @@ class MetadataConfiguration
     public ?string $publicKey = null;
 
     public ?string $privateKey = null;
+
+    public bool $usePrivateKeyAgent = false;
 }

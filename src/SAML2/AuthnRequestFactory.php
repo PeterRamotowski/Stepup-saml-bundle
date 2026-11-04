@@ -18,20 +18,16 @@
 
 namespace Surfnet\SamlBundle\SAML2;
 
-use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
-use SimpleSAML\SAML2\Configuration\PrivateKey;
 use SimpleSAML\SAML2\Constants;
 use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
 use SimpleSAML\SAML2\Type\SAMLStringValue;
 use SimpleSAML\SAML2\XML\saml\Issuer;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use SimpleSAML\XMLSchema\Type\BooleanValue;
-use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
-use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
-use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
+use Surfnet\SamlBundle\Signing\Signers;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
@@ -109,10 +105,7 @@ class AuthnRequestFactory
         bool $forceAuthn = false,
         string $relayState = ''
     ): AuthnRequest {
-        $privateKey = $serviceProvider->getPrivateKey(PrivateKey::NAME_DEFAULT);
-        if (!$privateKey instanceof PrivateKey) {
-            throw new RuntimeException('The hosted service provider has no default private key configured');
-        }
+        $signer = Signers::forHostedEntity($serviceProvider);
 
         $request = new SAML2AuthnRequest(
             id: AuthnRequestRebuilder::newId(),
@@ -124,13 +117,6 @@ class AuthnRequestFactory
             destination: SAMLAnyURIValue::fromString((string) $identityProvider->getSsoUrl()),
         );
 
-        return AuthnRequest::createNew($request, self::createSigner($privateKey), $relayState);
-    }
-
-    private static function createSigner(PrivateKey $key): SignatureAlgorithmInterface
-    {
-        $privateKey = (new PrivateKeyLoader())->loadPrivateKey($key);
-
-        return SignatureAlgorithms::factory()->getAlgorithm(Constants::SIG_RSA_SHA256, $privateKey);
+        return AuthnRequest::createNew($request, $signer, $relayState);
     }
 }

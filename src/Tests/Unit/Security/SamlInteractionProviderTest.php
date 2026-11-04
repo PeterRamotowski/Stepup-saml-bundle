@@ -89,6 +89,7 @@ class SamlInteractionProviderTest extends TestCase
         $this->serviceProvider->shouldReceive('getEntityId')->andReturn('https://sp');
         $this->serviceProvider->shouldReceive('getAssertionConsumerUrl')->andReturn('https://sp/acs');
         $this->serviceProvider->shouldReceive('getPrivateKey')->andReturn($privateKey);
+        $this->serviceProvider->shouldReceive('usesPrivateKeyAgent')->andReturn(false);
 
         $this->identityProvider->shouldReceive('getSsoUrl')->andReturn('https://idp.example.com/sso');
 

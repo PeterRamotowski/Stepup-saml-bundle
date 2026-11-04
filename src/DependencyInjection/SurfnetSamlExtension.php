@@ -232,6 +232,7 @@ class SurfnetSamlExtension extends Extension
             'entityIdRoute' => $configuration['metadata']['entity_id_route'],
             'publicKey'     => $configuration['metadata']['public_key'],
             'privateKey'    => $configuration['metadata']['private_key'],
+            'usePrivateKeyAgent' => ($configuration['metadata']['use_private_key_agent'] ?? false) === true,
             'isSp'          => false,
             'isIdP'         => false
         ];

@@ -43,6 +43,14 @@ final class KeyMap
     ];
 
     /**
+     * @var array<string, list<X509Certificate>> In configuration order, per operation
+     */
+    private array $certificates = [
+        PrivateKeyAgentConfiguration::OPERATION_SIGN => [],
+        PrivateKeyAgentConfiguration::OPERATION_DECRYPT => [],
+    ];
+
+    /**
      * @param array<string, array{certificate_file: string, operations: list<string>}> $keys By agent key name
      * @param array<string, string> $signingIdentities Certificate file by configuration path of the identity
      */
@@ -51,10 +59,11 @@ final class KeyMap
         $keyNameByFingerprint = [];
         foreach ($keys as $keyName => $key) {
             $keyName = (string) $keyName;
-            $fingerprint = self::fingerprint(
+            $certificate = self::certificate(
                 $key['certificate_file'],
                 sprintf('surfnet_saml.private_key_agent.keys.%s.certificate_file', $keyName)
             );
+            $fingerprint = self::fingerprintOf($certificate);
             if (isset($keyNameByFingerprint[$fingerprint])) {
                 throw new SamlInvalidConfigurationException(sprintf(
                     'Agent keys "%s" and "%s" use the same certificate (SHA-256 fingerprint %s).',
@@ -67,11 +76,12 @@ final class KeyMap
 
             foreach ($key['operations'] as $operation) {
                 $this->keyNames[$operation][$fingerprint] = $keyName;
+                $this->certificates[$operation][] = $certificate;
             }
         }
 
         foreach ($signingIdentities as $path => $certificateFile) {
-            $fingerprint = self::fingerprint($certificateFile, $path . '.public_key');
+            $fingerprint = self::fingerprintOf(self::certificate($certificateFile, $path . '.public_key'));
             if (!isset($this->keyNames[PrivateKeyAgentConfiguration::OPERATION_SIGN][$fingerprint])) {
                 throw new SamlInvalidConfigurationException(sprintf(
                     '%s uses the private key agent, but no agent key with the "sign" operation has its '
@@ -92,10 +102,29 @@ final class KeyMap
         return new FingerprintKeyNameResolver($this->keyNames[$operation]);
     }
 
-    private static function fingerprint(string $certificateFile, string $path): string
+    /**
+     * The certificates of the agent keys that may perform the operation, in configuration order.
+     *
+     * @return list<X509Certificate>
+     */
+    public function certificatesFor(string $operation): array
+    {
+        if (!array_key_exists($operation, $this->certificates)) {
+            throw new InvalidArgumentException(sprintf('Unknown agent operation "%s"', $operation));
+        }
+
+        return $this->certificates[$operation];
+    }
+
+    public static function fingerprintOf(X509Certificate $certificate): string
+    {
+        return strtolower($certificate->getRawThumbprint(C::DIGEST_SHA256));
+    }
+
+    private static function certificate(string $certificateFile, string $path): X509Certificate
     {
         try {
-            $certificate = X509Certificate::fromFile($certificateFile);
+            return X509Certificate::fromFile($certificateFile);
         } catch (RuntimeException $exception) {
             throw new SamlInvalidConfigurationException(
                 sprintf('%s: could not read a PEM certificate from "%s".', $path, $certificateFile),
@@ -103,7 +132,5 @@ final class KeyMap
                 $exception
             );
         }
-
-        return strtolower($certificate->getRawThumbprint(C::DIGEST_SHA256));
     }
 }

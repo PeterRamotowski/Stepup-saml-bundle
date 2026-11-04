@@ -32,4 +32,9 @@ class KeyPair
      * @var string|null
      */
     public $privateKeyFile;
+
+    /**
+     * Sign with the private key agent key of the public key certificate; the private key file is never read.
+     */
+    public bool $usePrivateKeyAgent = false;
 }
