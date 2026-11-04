@@ -1,10 +1,27 @@
-# Unreleased
+# Unreleased (8.0.0)
+- Migrate to `simplesamlphp/saml2` 7 (`^7.0.0-rc4`) and `simplesamlphp/xml-security` 3.1; remove `robrichards/xmlseclibs`
+- Require PHP 8.5; CI matrix is PHP 8.5 with Symfony 6.4/7.4
+- Add optional OpenConext Private Key Agent support (`surfnet_saml.private_key_agent`, `use_private_key_agent`) for
+  AuthnRequest, metadata and hosted IdP signing and for encrypted-assertion decryption, without local key fallback
+- Add `SAML2\Response\ResponseProcessor`, which replaces saml2's `Response\Processor`: verifies signatures with the
+  algorithm blacklist, continues with the verified element and decrypts assertions with local or agent keys
+- Add `SAML2\Response\AssertionValues` for the values of the removed flat saml2 assertion accessors
+- Add `Signing\Signers` to select the signer of a hosted entity
+- Fix the saml2 container's algorithm blacklist, whose nested default never matched (RSA-SHA1 and RSA v1.5 were accepted)
+- Initialise the saml2 container for console commands too
+- `PostBinding::receiveSignedAuthnRequestFrom()` returns the signed request instead of a second, unverified parse
+- `GsspUserAttributesChunk::getAttributeValue()` no longer builds an XPath query from the attribute name
+- `ci/qa/phplint` lints again; the PHPUnit runner no longer needs a host application
+- Remove the `composer audit` ignores for saml2 4.x advisories
 - Add `MduiChunk` to parse and expose `mdui:UIInfo` / `mdui:DisplayName` from AuthnRequest SAML extensions
 - Add `Extensions::getMduiChunk()` and `Extensions::hasMduiChunk()`
 - Raise minimum Symfony 6 support from 6.3 (EOL) to 6.4 LTS
-- Pin `simplesamlphp/saml2` to `<4.20` to avoid class redeclaration conflict with `xml-common`
 - Remove `irstea/phpcpd-shim` (source unreachable from CI runners)
-- CI matrix updated to PHP 8.2/8.5 and Symfony 6.4/7.4
+
+Backward compatibility breaks: see [UPGRADING.md](UPGRADING.md). In short: saml2 7 types throughout the public API,
+`PublicKey` instead of `XMLSecurityKey` for verification, `Dom\*` instead of `DOM*` in `Signable` and `Metadata`,
+a new `PostBinding` constructor argument, exactly one assertion and one `EncryptedKey` per Response, no encrypted
+NameIDs and HTTP 400 for POST AuthnRequests that violate the SAML protocol.
 
 # 7.0.2
 - Fix version constraint error in `symfony/templating` requirement

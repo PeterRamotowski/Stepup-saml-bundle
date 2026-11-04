@@ -20,6 +20,7 @@ namespace Surfnet\SamlBundle\SAML2;
 
 use BadMethodCallException;
 use Dom\Element;
+use Dom\XMLDocument;
 use DOMElement;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
@@ -48,7 +49,7 @@ class BridgeContainer extends AbstractContainer
     }
 
     /**
-     * @param string[]|null $algos Algorithm URIs to forbid, or null to use each factory's own default.
+     * @param array<mixed>|null $algos Algorithm URIs to forbid, or null to use each factory's own default.
      */
     public function setBlacklistedAlgorithms(?array $algos): void
     {
@@ -85,12 +86,16 @@ class BridgeContainer extends AbstractContainer
         return '_' . bin2hex(openssl_random_pseudo_bytes(30));
     }
 
+    /**
+     * @param Element|DOMElement|string $message
+     */
     public function debugMessage($message, string $type): void
     {
         if ($message instanceof Element) {
-            $message = $message->ownerDocument->saveXml($message);
+            $document = $message->ownerDocument;
+            $message = $document instanceof XMLDocument ? $document->saveXml($message) : null;
         } elseif ($message instanceof DOMElement) {
-            $message = $message->ownerDocument->saveXML($message);
+            $message = $message->ownerDocument?->saveXML($message);
         }
 
         if (!is_string($message)) {
@@ -100,7 +105,10 @@ class BridgeContainer extends AbstractContainer
         $this->logger->debug($message, ['type' => $type]);
     }
 
-    /** @throws BadMethodCallException */
+    /**
+     * @param array<string, mixed> $data
+     * @throws BadMethodCallException
+     */
     public function getPOSTRedirectURL(string $url, array $data = []): string
     {
         $this->notSupported(__METHOD__);

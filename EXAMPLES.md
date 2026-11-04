@@ -84,8 +84,8 @@ SAML response and redirects to your application:
 namespace YourApp\Controller\Saml;
 
 use Exception;
-use SAML2\Assertion;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
+use Surfnet\SamlBundle\SAML2\Response\AssertionValues;
 use YourApp\Saml\AcsContextInterface;
 use Psr\Log\LoggerInterface;
 use Surfnet\SamlBundle\Entity\HostedEntities;
@@ -156,18 +156,18 @@ class AcsRespondController
         $logger->info(
             'Processed ACS authn request',
             [
-                'attributes' => $assertion->getAttributes(),
+                'attributes' => AssertionValues::attributes($assertion),
             ]
         );
 
         $logger->debug(
             'Full assertion in received authn response',
             [
-                'assertion' => $assertion->toXML()->ownerDocument->saveXML(),
+                'assertion' => (string) $assertion,
             ]
         );
 
-        $inResponseTo = $this->getInResponseTo($assertion);
+        $inResponseTo = AssertionValues::inResponseTo($assertion);
         $requestId = $context->getAuthnRequest()->getRequestId();
         if ($inResponseTo !== $requestId) {
             throw new BadRequestException(
@@ -183,20 +183,21 @@ class AcsRespondController
             '/redirect-to-somewhere'
         );
     }
-
-    private function getInResponseTo(Assertion $assertion): ?string
-    {
-        /** @var \SAML2\XML\saml\SubjectConfirmation $subjectConfirmation */
-        $subjectConfirmation = $assertion->getSubjectConfirmation()[0];
-
-        return $subjectConfirmation->SubjectConfirmationData->InResponseTo;
-    }
 }
 ```
 
 That is more than a few lines of code, but most of it is just logging. The SAML
-bundle does not check the InResponseTo of the assertion, so that too is included
+bundle checks that the assertion answers the Response's InResponseTo, but not
+that it answers the request your application sent, so that check is included
 in this example.
+
+`PostBinding::processResponse()` accepts a Response only when the Response or
+the Assertion is signed by the IdP, and returns the single assertion it carries,
+decrypted when it was encrypted. When the hosted SP uses the Private Key Agent
+(see the README), decryption and the AuthnRequest signature go through the agent
+and agent failures surface as
+`SimpleSAML\XMLSecurity\Exception\PrivateKeyAgentExceptionInterface`
+exceptions; the generic `catch (Exception $e)` above handles them too.
 
 ## SAML Authentications
 As of version 5 of this bundle, a Symfony Security Authentication SamlAuthenticator was added to the project. 

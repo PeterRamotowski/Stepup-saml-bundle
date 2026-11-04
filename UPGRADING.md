@@ -1,3 +1,157 @@
+# UPGRADE FROM 7.X to 8.0
+
+Version 8 moves the bundle from `simplesamlphp/saml2` 4.x and `robrichards/xmlseclibs` to `simplesamlphp/saml2` 7
+and `simplesamlphp/xml-security` 3.1, and adds optional signing and decryption through an OpenConext Private Key
+Agent. Without the new `private_key_agent` configuration, the bundle keeps signing and decrypting with local private
+keys.
+
+## Requirements
+
+- PHP 8.5 (saml2 7 requires it) and Symfony 6.4 or 7.4.
+- `simplesamlphp/saml2` `^7.0.0-rc4`. At the time of this release saml2 7 is only available as a release candidate.
+  Composer ignores stability flags of dependencies, so an application with `minimum-stability: stable` must allow
+  it in its own `composer.json`:
+
+  ```json
+  "require": {
+      "simplesamlphp/saml2": "^7.0.0-rc4",
+      "surfnet/stepup-saml-bundle": "^8.0"
+  }
+  ```
+
+  Later release candidates may change saml2 APIs the bundle relies on; this release is tested with `7.0.0-rc4`.
+- New direct dependencies: `simplesamlphp/xml-security` `^3.1`, `simplesamlphp/xml-common` `^3.0`, `psr/clock`,
+  `symfony/clock`, `symfony/http-client` and `nyholm/psr7`. `robrichards/xmlseclibs` is no longer required; remove it
+  from your application unless you use it yourself.
+- The bundle registers a `Psr\Clock\ClockInterface` argument for its saml2 container. The service must exist; with
+  `symfony/clock` installed, FrameworkBundle provides it.
+
+## Namespaces and types
+
+All saml2 classes moved from `SAML2\` to `SimpleSAML\SAML2\`, and most XML classes changed. Search your
+application for `SAML2\`, `RobRichards\` and `DOMDocument`/`DOMElement` usages around the bundle.
+
+| 7.x | 8.0 |
+| --- | --- |
+| `SAML2\Assertion` | `SimpleSAML\SAML2\XML\saml\Assertion` (immutable; no flat accessors) |
+| `SAML2\Response\Processor` | `Surfnet\SamlBundle\SAML2\Response\ResponseProcessor` (service `surfnet_saml.saml2.response_processor`) |
+| `SAML2\Response\Exception\*` | `SimpleSAML\SAML2\Response\Exception\*` |
+| `RobRichards\XMLSecLibs\XMLSecurityKey` (verification) | `SimpleSAML\XMLSecurity\Key\PublicKey` |
+| `RobRichards\XMLSecLibs\XMLSecurityKey` (signing) | `SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface` |
+| `DOMDocument`, `DOMElement`, `DOMNode` in `Signable` and `Metadata` | `Dom\XMLDocument`, `Dom\Element`, `Dom\Node` |
+
+## Assertions
+
+The saml2 7 assertion no longer offers `getNameId()`, `getAttributes()`, `getSubjectConfirmation()` or a string
+issuer. Use `Surfnet\SamlBundle\SAML2\Response\AssertionValues` for the values the 7.x API returned:
+
+| 7.x | 8.0 |
+| --- | --- |
+| `$assertion->getNameId()?->getValue()` | `AssertionValues::nameId($assertion)` |
+| `$assertion->getIssuer()->getValue()` | `AssertionValues::issuer($assertion)` |
+| `$assertion->getSubjectConfirmation()[0]->getSubjectConfirmationData()->getInResponseTo()` | `AssertionValues::inResponseTo($assertion)` |
+| `$assertion->getAttributes()` | `AssertionValues::attributes($assertion)` |
+
+`AssertionValues::attributes()` returns `array<string, list<string>>` and merges equally named attributes over all
+attribute statements. The `SamlAttributesBadge` of `SamlAuthenticator` carries the same structure.
+`AssertionAdapter`, `AttributeSet::createFrom()` and `InResponseTo::assertEquals()` keep their API.
+
+## Responses
+
+`PostBinding::processResponse()` still returns a single assertion, but processing changed:
+
+- The `PostBinding` constructor takes the bundle's `ResponseProcessor` instead of saml2's `Processor`. If you
+  construct `PostBinding` yourself, inject `surfnet_saml.saml2.response_processor`.
+- `ResponseProcessor::process()` takes the destination as a string and returns the assertion instead of a
+  collection.
+- The order is: status and destination, Response signature, decryption, Assertion signature, assertion and subject
+  confirmation validation. Either the Response or the Assertion must be signed by the remote IdP
+  (`UnsignedResponseException` otherwise). Decryption never makes an assertion trusted.
+- Signatures are verified with the algorithm blacklist of the bundle's saml2 container (RSA-SHA1 and RSA v1.5
+  key transport are rejected).
+- A Response must carry exactly one assertion. An encrypted assertion must carry exactly one `EncryptedKey`.
+  Encrypted NameIDs and shared-key (symmetric) decryption are not supported.
+- The subject confirmation InResponseTo must match the Response's InResponseTo. As before, `PostBinding` does not
+  compare it with the request your application sent: `SamlAuthenticator` does, custom ACS code still has to.
+- InResponseTo values must be NCNames, as saml2 7 requires.
+- An invalid or empty base64 `SAMLResponse` produces a `BadRequestHttpException`.
+- Non-success statuses keep their mapping to `AuthnFailedSamlResponseException` and
+  `NoAuthnContextSamlResponseException`, which now extend `SimpleSAML\SAML2\Response\Exception\PreconditionNotMetException`.
+
+## AuthnRequests
+
+`AuthnRequest` and `ReceivedAuthnRequest` keep their public API, but wrap the immutable saml2 7 `AuthnRequest`.
+
+- `AuthnRequest::createNew()` takes the signer and the relay state as optional arguments:
+  `createNew(SAML2AuthnRequest $request, ?SignatureAlgorithmInterface $signer = null, ?string $relayState = null)`.
+  Saml2 7 messages no longer carry a relay state or signing key.
+- `AuthnRequest::getDestination()`, `AuthnRequest::getServiceProvider()` and
+  `ReceivedAuthnRequest::getAssertionConsumerServiceURL()` throw `Surfnet\SamlBundle\Exception\RuntimeException`
+  instead of a `TypeError` when the value is missing.
+- `SignatureVerifiable::verify()`, `ReceivedAuthnRequestQueryString::verify()` and `ReceivedAuthnRequestPost::verify()`
+  take a `SimpleSAML\XMLSecurity\Key\PublicKey`.
+- `PostBinding::receiveSignedAuthnRequestFrom()` returns the request as covered by the XML signature, and rejects it
+  when its Destination or Issuer differ from the values checked before verification.
+- Saml2 7 rejects `NameIDPolicy` with the transient format and `AllowCreate="true"` (SAML errata E14). Requests
+  received through HTTP-Redirect are normalised before parsing, because their signature covers the query string.
+  Requests received through HTTP-POST are not, because the XML signature covers the attribute; these and other
+  saml2 protocol violations now produce a `BadRequestHttpException` (HTTP 400).
+- Generated XML declares namespaces on the elements that use them. The XML is semantically equal; compare it after
+  canonicalization rather than as a string.
+
+## Signing and metadata
+
+- `Signable::getRootDomElement()` returns a `Dom\Element`, `Signable::getAppendBeforeNode()` a `?Dom\Node`, and
+  `Metadata::$document` is a `?Dom\XMLDocument`.
+- Signed metadata gets a generated `ID` on its root element when the template has none, so that the signature
+  reference has a URI.
+- `SigningService::sign()` throws `Surfnet\SamlBundle\Exception\RuntimeException` instead of a `TypeError` when no
+  private key file is configured.
+- New `Surfnet\SamlBundle\Signing\Signers` returns the RSA-SHA256 signer of a hosted entity (`forHostedEntity()`).
+  Applications with a hosted IdP should use it to sign their responses, so that agent identities sign through the
+  agent.
+
+## Private Key Agent (optional)
+
+The new `surfnet_saml.private_key_agent` section and the `use_private_key_agent` flags of
+`hosted.service_provider`, `hosted.identity_provider` and `hosted.metadata` let an OpenConext Private Key Agent
+perform the RSA private-key operations. See the README for the configuration. Nothing changes for applications that
+do not enable it.
+
+- An identity with `use_private_key_agent: true` must not configure `private_key`, and its `public_key` must point
+  at the certificate of an agent key with the `sign` operation. The bundle checks this when the container is
+  compiled and when the kernel boots, so the certificate files must be readable at boot.
+- The bundle never falls back to a local private key. Agent failures surface as
+  `SimpleSAML\XMLSecurity\Exception\PrivateKeyAgentExceptionInterface` exceptions (for example
+  `AgentUnavailableException`, `AuthenticationException`, `AuthorizationException`); the bundle does not map them to
+  its own exceptions. Catch them where you translate errors for users.
+- Each signature or decryption costs one agent request, bounded by `timeout` and `max_duration`, with no retries and
+  no circuit breaker. Add a circuit breaker in your application or infrastructure if you need one.
+- The agent algorithms are registered with xml-security's process-wide algorithm factories when the kernel boots.
+  In worker SAPIs (FrankenPHP, RoadRunner, Swoole) the registration therefore lives as long as the worker.
+- `KeyPair::$usePrivateKeyAgent` and `MetadataConfiguration::$usePrivateKeyAgent` select agent signing for metadata.
+  `ResponseProcessor` takes an optional `KeyMap` as fourth constructor argument.
+- `AuthnRequestFactory::createNewRequest()` signs through the agent for an agent SP. Its error for a missing local
+  key now names the entity.
+
+## Known limitations of saml2 7.0.0-rc4 and xml-security 3.1.0
+
+- Attribute values with `xsi:type` `xs:nonNegativeInteger`, `xs:nonPositiveInteger`, `xs:positiveInteger` or
+  `xs:normalizedString` fail with a PHP `Error` (class not found) in saml2 rc4, so a Response carrying them cannot
+  be processed. Fixed in saml2 after rc4, not yet released.
+- An encrypted assertion is decrypted with the first `EncryptedKey` of its `KeyInfo` only; the bundle rejects
+  assertions with more than one `EncryptedKey`, so multi-recipient encryption is not supported.
+- `xmlenc11#rsa-oaep` without explicit `DigestMethod`/`MGF` parameters cannot be decrypted through the Private Key
+  Agent (see the README). Local keys are not affected.
+- The `HTTPRedirect` binding and the `Response\Processor` of saml2 rc4 are not used by the bundle, because they emit
+  invalid redirect signatures and cannot decrypt assertions respectively. Do not use them directly.
+
+## Removed audit ignores
+
+The `composer audit` ignores for GHSA-5cjr-mxj5-wmrx and GHSA-6929-8p9f-26jx are removed; both advisories only
+affect saml2 4.x. `SignatureTransformGuard` still rejects XPath transforms before every signature verification,
+because xml-security 3 evaluates them and SAML never needs them.
+
 # UPGRADE FROM X to 4.1.9
 
 When using this bundle with Symfony 4.3 you should configure the templating engine:
