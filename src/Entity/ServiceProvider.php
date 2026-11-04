@@ -26,4 +26,12 @@ class ServiceProvider extends ServiceProviderConfiguration
     {
         return $this->get('assertionConsumerUrl');
     }
+
+    /**
+     * Whether the certificate's agent key signs and decrypts for this entity instead of a local private key.
+     */
+    public function usesPrivateKeyAgent(): bool
+    {
+        return $this->get('privateKeyAgent', false) === true;
+    }
 }

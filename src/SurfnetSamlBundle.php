@@ -22,6 +22,7 @@ use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use Surfnet\SamlBundle\DependencyInjection\Compiler\SamlAttributeRegistrationCompilerPass;
 use Surfnet\SamlBundle\DependencyInjection\Compiler\SpRepositoryAliasCompilerPass;
 use Surfnet\SamlBundle\DependencyInjection\SurfnetSamlExtension;
+use Surfnet\SamlBundle\PrivateKeyAgent\AlgorithmRegistrar;
 use Surfnet\SamlBundle\SAML2\BridgeContainer;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
@@ -35,6 +36,15 @@ class SurfnetSamlBundle extends AbstractBundle
         $bridgeContainer = $this->container?->get('surfnet_saml.saml2.bridge_container');
         if ($bridgeContainer instanceof BridgeContainer) {
             ContainerSingleton::setContainer($bridgeContainer);
+        }
+
+        if ($this->container?->has('surfnet_saml.private_key_agent.algorithm_registrar')) {
+            // The key map validates the certificate mappings, so that a wrong mapping fails at boot.
+            $this->container->get('surfnet_saml.private_key_agent.key_map');
+            $registrar = $this->container->get('surfnet_saml.private_key_agent.algorithm_registrar');
+            if ($registrar instanceof AlgorithmRegistrar) {
+                $registrar->register();
+            }
         }
     }
 

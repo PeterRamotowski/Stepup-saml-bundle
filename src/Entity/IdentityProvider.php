@@ -49,6 +49,14 @@ class IdentityProvider implements CertificateProvider, DecryptionProvider, Entit
         return $this->get('ssoUrl');
     }
 
+    /**
+     * Whether the certificate's agent key signs for this entity instead of a local private key.
+     */
+    public function usesPrivateKeyAgent(): bool
+    {
+        return $this->get('privateKeyAgent', false) === true;
+    }
+
     public function get(string $key, $defaultValue = null)
     {
         return $this->configuration->get($key, $defaultValue);

@@ -29,7 +29,7 @@ class KeyPair
     public $publicKeyFile;
 
     /**
-     * @var string
+     * @var string|null
      */
     public $privateKeyFile;
 }

@@ -41,6 +41,10 @@ class SigningService
 
     public function sign(Signable $signable, KeyPair $keyPair): Signable
     {
+        if (!is_string($keyPair->privateKeyFile) || $keyPair->privateKeyFile === '') {
+            throw new RuntimeException('No private key file is configured for signing');
+        }
+
         $publicKey = $this->loadPublicKeyFromFile($keyPair->publicKeyFile);
         $privateKey = $this->loadPrivateKeyFromFile($keyPair->privateKeyFile);
 
