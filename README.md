@@ -136,6 +136,10 @@ surfnet_saml:
 
 - `use_private_key_agent` exists for `service_provider`, `identity_provider` and `metadata`. The identity's
   `public_key` must be the certificate file of an agent key with the `sign` operation.
+- `enabled` may use `%env(bool:PKA_ENABLED)%`; rebuild the container cache after changing that variable.
+  Hosted `use_private_key_agent` flags require literal booleans.
+- `algorithms.signature` must include RSA-SHA256 when a hosted identity signs through the agent.
+- Local-key operations do not initialize the agent backend or resolve its tokens and URL.
 - The bundle selects agent keys by certificate fingerprint. A key is only used for the operations it lists.
 - Keep tokens out of configuration files, for example with the `file:` environment variable processor as above.
   Tokens are not included in exception messages.

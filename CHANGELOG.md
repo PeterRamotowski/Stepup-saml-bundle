@@ -1,4 +1,13 @@
 # Unreleased (8.0.0)
+- Resolve environment-backed agent enablement before registering services; keep token and URL resolution lazy
+- Reject malformed signatures and unsupported algorithms in the deprecated AuthnRequest path; preserve empty RelayState
+- Update example controllers for attribute routes, the remote IdP and HTTP errors; remove raw SAML and attribute logging
+- Keep bearer tokens out of agent key-name validation errors and require RSA-SHA256 for agent signing identities
+- Reject non-RSA XML signature methods and handle unsupported agent key transport without key-type errors
+- Return HTTP 400 for malformed, schema-invalid and protocol-invalid AuthnRequests over POST and Redirect
+- Restore assertion text trimming and preserve IDPList and SubjectConfirmations when updating AuthnRequests
+- Reload AuthnRequest extensions after signature verification and initialize agent backends only for agent keys
+- Make console event subscription conditional on Symfony Console being installed
 - Migrate to `simplesamlphp/saml2` 7 (`^7.0.0-rc4`) and `simplesamlphp/xml-security` 3.1; remove `robrichards/xmlseclibs`
 - Require PHP 8.5; CI matrix is PHP 8.5 with Symfony 6.4/7.4
 - Add optional OpenConext Private Key Agent support (`surfnet_saml.private_key_agent`, `use_private_key_agent`) for
@@ -21,7 +30,7 @@
 Backward compatibility breaks: see [UPGRADING.md](UPGRADING.md). In short: saml2 7 types throughout the public API,
 `PublicKey` instead of `XMLSecurityKey` for verification, `Dom\*` instead of `DOM*` in `Signable` and `Metadata`,
 a new `PostBinding` constructor argument, exactly one assertion and one `EncryptedKey` per Response, no encrypted
-NameIDs and HTTP 400 for POST AuthnRequests that violate the SAML protocol.
+NameIDs and HTTP 400 for invalid AuthnRequests over POST and Redirect.
 
 # 7.0.2
 - Fix version constraint error in `symfony/templating` requirement

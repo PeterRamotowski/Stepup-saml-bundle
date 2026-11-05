@@ -22,6 +22,8 @@ use SimpleSAML\XMLSecurity\Backend\PrivateKeyAgent\KeyNameResolver;
 use SimpleSAML\XMLSecurity\Constants as C;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
+use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
 
 /**
  * The optional surfnet_saml.private_key_agent section.
@@ -33,9 +35,10 @@ final class PrivateKeyAgentConfiguration implements ConfigurationInterface
 {
     public const string OPERATION_SIGN = 'sign';
     public const string OPERATION_DECRYPT = 'decrypt';
+    public const string REQUIRED_SIGNATURE_ALGORITHM = C::SIG_RSA_SHA256;
 
     public const array SUPPORTED_SIGNATURE_ALGORITHMS = [
-        C::SIG_RSA_SHA256,
+        self::REQUIRED_SIGNATURE_ALGORITHM,
         C::SIG_RSA_SHA384,
         C::SIG_RSA_SHA512,
     ];
@@ -44,6 +47,26 @@ final class PrivateKeyAgentConfiguration implements ConfigurationInterface
         C::KEY_TRANSPORT_OAEP_MGF1P,
         C::KEY_TRANSPORT_OAEP,
     ];
+
+    /**
+     * @param list<mixed> $configs Raw section values, validated by the configuration tree.
+     * @return list<mixed>
+     */
+    public static function resolveEnabled(array $configs, ContainerBuilder $container): array
+    {
+        foreach ($configs as $index => $config) {
+            if (is_array($config) && is_string($config['enabled'] ?? null)) {
+                // This flag changes the service graph, so resolve it before processing the configuration tree.
+                $config['enabled'] = $container->resolveEnvPlaceholders(
+                    $container->getParameterBag()->resolveValue($config['enabled']),
+                    true
+                );
+                $configs[$index] = $config;
+            }
+        }
+
+        return $configs;
+    }
 
     /**
      * @SuppressWarnings("PHPMD.ExcessiveMethodLength")
@@ -115,12 +138,21 @@ final class PrivateKeyAgentConfiguration implements ConfigurationInterface
                         ->end()
                     ->end()
                     ->validate()
-                        ->ifTrue(static fn (array $keys): bool => array_any(
-                            array_keys($keys),
-                            static fn (int|string $name): bool =>
-                                preg_match(KeyNameResolver::KEY_NAME_PATTERN, (string) $name) !== 1
-                        ))
-                        ->thenInvalid('Agent key names must match [a-zA-Z0-9_-]{1,64}: %s')
+                        ->always(static function (array $keys): array {
+                            $invalidNames = array_filter(
+                                array_keys($keys),
+                                static fn (int|string $name): bool =>
+                                    preg_match(KeyNameResolver::KEY_NAME_PATTERN, (string) $name) !== 1
+                            );
+                            if ($invalidNames !== []) {
+                                throw new InvalidConfigurationException(sprintf(
+                                    'Agent key names must match [a-zA-Z0-9_-]{1,64}: %s',
+                                    implode(', ', $invalidNames)
+                                ));
+                            }
+
+                            return $keys;
+                        })
                     ->end()
                 ->end()
                 ->arrayNode('algorithms')

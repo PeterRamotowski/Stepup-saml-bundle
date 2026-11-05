@@ -65,10 +65,13 @@ trait AuthnRequestAccessorsTrait
     public function setSubject(string $nameId, ?string $format = null): void
     {
         $this->request = AuthnRequestRebuilder::with($this->request, [
-            'subject' => new Subject(new NameID(
-                SAMLStringValue::fromString($nameId),
-                Format: SAMLAnyURIValue::fromString($format ?: Constants::NAMEID_UNSPECIFIED),
-            )),
+            'subject' => new Subject(
+                new NameID(
+                    SAMLStringValue::fromString($nameId),
+                    Format: SAMLAnyURIValue::fromString($format ?: Constants::NAMEID_UNSPECIFIED),
+                ),
+                $this->request->getSubject()?->getSubjectConfirmation() ?? [],
+            ),
         ]);
     }
 
@@ -92,7 +95,7 @@ trait AuthnRequestAccessorsTrait
         $this->request = AuthnRequestRebuilder::with($this->request, [
             'scoping' => new Scoping(
                 NonNegativeIntegerValue::fromInteger($proxyCount),
-                null,
+                $this->request->getScoping()?->getIDPList(),
                 array_map(
                     static fn (string $id): RequesterID => new RequesterID(EntityIDValue::fromString($id)),
                     array_values($requesterIds)

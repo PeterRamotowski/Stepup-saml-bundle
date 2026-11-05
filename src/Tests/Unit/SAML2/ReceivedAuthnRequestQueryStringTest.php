@@ -24,6 +24,9 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use SimpleSAML\XML\DOMDocumentFactory;
+use SimpleSAML\XMLSecurity\Constants as C;
+use SimpleSAML\XMLSecurity\Exception\UnsupportedAlgorithmException;
+use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use stdClass;
 use Surfnet\SamlBundle\Http\Exception\InvalidReceivedAuthnRequestQueryStringException;
 use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
@@ -48,6 +51,19 @@ AUTHNREQUEST_NO_SUBJECT;
      *
      * @param $nonOrEmptyString
      */
+    #[Test]
+    public function direct_verification_rejects_hmac_without_a_key_type_error(): void
+    {
+        $query = ReceivedAuthnRequestQueryString::parse(http_build_query([
+            'SAMLRequest' => base64_encode('payload'),
+            'SigAlg' => C::SIG_HMAC_SHA256,
+            'Signature' => base64_encode('signature'),
+        ]));
+        $key = X509Certificate::fromFile(__DIR__ . '/../../../Resources/keys/development_publickey.cer')->getPublicKey();
+        $this->expectException(UnsupportedAlgorithmException::class);
+        $query->verify($key);
+    }
+
     #[Test]
     #[DataProvider('emptyStringProvider')]
     #[Group('AuthnRequest')]

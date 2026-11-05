@@ -43,10 +43,12 @@ class BridgeContainerBootListener implements EventSubscriberInterface
 
     public static function getSubscribedEvents(): array
     {
-        return [
-            KernelEvents::REQUEST => ['onKernelRequest', 256],
-            ConsoleEvents::COMMAND => ['onKernelRequest', 256],
-        ];
+        $events = [KernelEvents::REQUEST => ['onKernelRequest', 256]];
+        if (class_exists(ConsoleEvents::class)) {
+            $events[ConsoleEvents::COMMAND] = ['onKernelRequest', 256];
+        }
+
+        return $events;
     }
 
     public function onKernelRequest(): void

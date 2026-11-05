@@ -19,6 +19,7 @@
 namespace Surfnet\SamlBundle\Tests\Unit\PrivateKeyAgent;
 
 use ArrayObject;
+use LogicException;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -147,6 +148,25 @@ class AlgorithmRegistrarTest extends TestCase
         $this->expectException(BlacklistedAlgorithmException::class);
 
         (new SignatureAlgorithmFactory([C::SIG_RSA_SHA256]))->getAlgorithm(C::SIG_RSA_SHA256, $this->certificate());
+    }
+
+    #[Test]
+    public function local_crypto_works_even_when_agent_backend_construction_fails(): void
+    {
+        $unavailable = static function (): never {
+            throw new LogicException('The agent backend cannot be constructed');
+        };
+        (new AlgorithmRegistrar($unavailable, $unavailable, [C::SIG_RSA_SHA256], [C::KEY_TRANSPORT_OAEP_MGF1P]))->register();
+        $privateKey = PrivateKey::fromFile(self::KEYS . '/development_privatekey.pem');
+        $publicKey = $this->certificate()->getPublicKey();
+        $signatures = new SignatureAlgorithmFactory();
+        $signature = $signatures->getAlgorithm(C::SIG_RSA_SHA256, $privateKey)->sign('local data');
+        self::assertTrue($signatures->getAlgorithm(C::SIG_RSA_SHA256, $publicKey)->verify('local data', $signature));
+
+        $transport = new KeyTransportAlgorithmFactory();
+        $ciphertext = $transport->getAlgorithm(C::KEY_TRANSPORT_OAEP_MGF1P, $publicKey)->encrypt('session key');
+        self::assertSame('session key', $transport->getAlgorithm(C::KEY_TRANSPORT_OAEP_MGF1P, $privateKey)->decrypt($ciphertext));
+        self::assertCount(0, $this->agentRequests);
     }
 
     private function certificate(): X509Certificate

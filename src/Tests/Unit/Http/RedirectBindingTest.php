@@ -35,6 +35,7 @@ use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
 use Surfnet\SamlBundle\Http\RedirectBinding;
 use Surfnet\SamlBundle\Http\RedirectBinding as SamlBundleRedirectBinding;
 use Surfnet\SamlBundle\Signing\SignatureVerifier;
+use Surfnet\SamlBundle\Tests\Unit\SAML2\AuthnRequestParserTest;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
@@ -57,6 +58,35 @@ MESSAGE;
     private SamlBundleRedirectBinding $redirectBinding;
 
     private m\MockInterface|ServiceProviderRepository $entityRepository;
+
+    public static function invalidRequests(): iterable
+    {
+        foreach (AuthnRequestParserTest::invalidRequests() as $name => [$xml]) {
+            yield $name . ' unsigned' => [$xml, false];
+            yield $name . ' signed' => [$xml, true];
+        }
+    }
+
+    #[Test]
+    #[DataProvider('invalidRequests')]
+    public function invalid_authn_request_xml_is_an_http_bad_request(string $xml, bool $signed): void
+    {
+        $query = ['SAMLRequest' => base64_encode(gzdeflate($xml))];
+        $verifier = m::mock(SignatureVerifier::class);
+        if ($signed) {
+            $query['SigAlg'] = 'signature-algorithm';
+            $query['Signature'] = base64_encode('signature');
+            $verifier->shouldReceive('verifySignatureAlgorithmSupported')->once()->andReturn(true);
+        }
+        $binding = new RedirectBinding($verifier, $this->entityRepository);
+        $request = Request::create('https://idp.example.org/sso?' . http_build_query($query));
+        $this->expectException(BadRequestHttpException::class);
+        if ($signed) {
+            $binding->receiveSignedAuthnRequestFrom($request);
+        } else {
+            $binding->receiveUnsignedAuthnRequestFrom($request);
+        }
+    }
 
     public function setUp(): void
     {

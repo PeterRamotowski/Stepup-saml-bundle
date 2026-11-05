@@ -19,12 +19,13 @@
 namespace Surfnet\SamlBundle\SAML2;
 
 use Dom\Element;
+use Exception;
 use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Exception\ProtocolViolationException;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use SimpleSAML\SAML2\XML\samlp\MessageFactory;
 use SimpleSAML\XML\DOMDocumentFactory;
-use Surfnet\SamlBundle\Exception\InvalidArgumentException;
-use Surfnet\SamlBundle\Exception\RuntimeException;
+use Surfnet\SamlBundle\Exception\InvalidAuthnRequestException;
 use function sprintf;
 
 /**
@@ -61,16 +62,20 @@ final class AuthnRequestParser
     private static function loadDocumentElement(string $decodedSamlRequest): Element
     {
         if ($decodedSamlRequest === '') {
-            throw new InvalidArgumentException(
+            throw new InvalidAuthnRequestException(
                 'Could not create ReceivedAuthnRequest: expected a non-empty string, received an empty string'
             );
         }
 
         // additional security against XXE Processing vulnerability
-        $document = DOMDocumentFactory::fromString($decodedSamlRequest);
+        try {
+            $document = DOMDocumentFactory::fromString($decodedSamlRequest);
+        } catch (Exception $exception) {
+            throw new InvalidAuthnRequestException('The AuthnRequest XML could not be parsed', 0, $exception);
+        }
 
         if (!$document->documentElement instanceof Element) {
-            throw new RuntimeException('The SAML message can not be read from the document');
+            throw new InvalidAuthnRequestException('The SAML message can not be read from the document');
         }
 
         return $document->documentElement;
@@ -78,10 +83,19 @@ final class AuthnRequestParser
 
     private static function fromElement(Element $element): SAML2AuthnRequest
     {
-        $authnRequest = MessageFactory::fromXML($element);
+        try {
+            $authnRequest = MessageFactory::fromXML($element);
+        } catch (Exception $exception) {
+            // Preserve the public parser's existing protocol exception contract.
+            if ($exception instanceof ProtocolViolationException) {
+                throw $exception;
+            }
+
+            throw new InvalidAuthnRequestException('The AuthnRequest does not satisfy the SAML schema', 0, $exception);
+        }
 
         if (!$authnRequest instanceof SAML2AuthnRequest) {
-            throw new RuntimeException(sprintf(
+            throw new InvalidAuthnRequestException(sprintf(
                 'The received request is not an AuthnRequest, "%s" received instead',
                 $authnRequest::class
             ));

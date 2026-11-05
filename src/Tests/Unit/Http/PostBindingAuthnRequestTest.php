@@ -21,6 +21,8 @@ namespace Surfnet\SamlBundle\Tests\Http;
 use LogicException;
 use Mockery as m;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+use PHPUnit\Framework\Attributes\DataProviderExternal;
+use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\Compat\MockContainer;
@@ -32,6 +34,7 @@ use Surfnet\SamlBundle\Http\PostBinding;
 use Surfnet\SamlBundle\SAML2\ReceivedAuthnRequest;
 use Surfnet\SamlBundle\SAML2\Response\ResponseProcessor;
 use Surfnet\SamlBundle\Signing\SignatureVerifier;
+use Surfnet\SamlBundle\Tests\Unit\SAML2\AuthnRequestParserTest;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
@@ -55,6 +58,15 @@ MESSAGE;
     private m\MockInterface&ServiceProviderRepository $entityRepository;
 
     private m\MockInterface&SignatureVerifier $signatureVerifier;
+
+    #[Test]
+    #[DataProviderExternal(AuthnRequestParserTest::class, 'invalidRequests')]
+    public function invalid_authn_request_xml_is_an_http_bad_request(string $xml): void
+    {
+        $request = Request::create('https://idp.example.org/sso', 'POST', ['SAMLRequest' => base64_encode($xml)]);
+        $this->expectException(BadRequestHttpException::class);
+        $this->postBinding->receiveSignedAuthnRequestFrom($request);
+    }
 
     public function setUp(): void
     {

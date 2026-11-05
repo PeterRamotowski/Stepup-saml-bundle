@@ -55,6 +55,7 @@ use Surfnet\SamlBundle\PrivateKeyAgent\KeyMap;
 use Surfnet\SamlBundle\SAML2\Response\Validation\SessionNotOnOrAfter;
 use Surfnet\SamlBundle\Signing\CertificateKeys;
 use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
+use Throwable;
 
 /**
  * Turns a received SAML Response into the single, verified and validated assertion it carries.
@@ -139,7 +140,7 @@ class ResponseProcessor
 
             try {
                 $verified = $element->verify(
-                    SignatureAlgorithms::factory()->getAlgorithm((string) $algorithm, CertificateKeys::toPublicKey($key))
+                    SignatureAlgorithms::forVerification((string) $algorithm, CertificateKeys::toPublicKey($key))
                 );
                 if ($verified instanceof $expectedClass) {
                     return $verified;
@@ -239,7 +240,14 @@ class ResponseProcessor
 
         $lastException = null;
         foreach ($certificates as $certificate) {
-            $decryptor = $factory->getAlgorithm($algorithm, $certificate);
+            try {
+                $decryptor = $factory->getAlgorithm($algorithm, $certificate);
+            } catch (Throwable $exception) {
+                throw new InvalidAssertionException(sprintf(
+                    'The private key agent could not initialize key transport for "%s"',
+                    $algorithm
+                ), 0, $exception);
+            }
             if (!$decryptor instanceof PrivateKeyAgentKeyTransport) {
                 throw new InvalidAssertionException(sprintf('The private key agent is not registered for "%s"', $algorithm));
             }

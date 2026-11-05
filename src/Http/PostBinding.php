@@ -26,9 +26,12 @@ use SimpleSAML\SAML2\Response\Exception\PreconditionNotMetException;
 use SimpleSAML\SAML2\XML\saml\Assertion;
 use SimpleSAML\SAML2\XML\samlp\Response;
 use SimpleSAML\XML\DOMDocumentFactory;
+use SimpleSAML\XMLSecurity\Exception\SignatureVerificationFailedException;
+use SimpleSAML\XMLSecurity\Exception\UnsupportedAlgorithmException;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Entity\ServiceProviderRepository;
+use Surfnet\SamlBundle\Exception\InvalidAuthnRequestException;
 use Surfnet\SamlBundle\Http\Exception\AuthnFailedSamlResponseException;
 use Surfnet\SamlBundle\Http\Exception\NoAuthnContextSamlResponseException;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
@@ -159,7 +162,15 @@ class PostBinding implements HttpBinding
         $checkedIssuer = $authnRequest->getServiceProvider();
 
         // Note: verifyIsSignedBy throws an Exception when the signature does not match.
-        if (!$this->signatureVerifier->verifyIsSignedBy($receivedRequest, $serviceProvider)) {
+        try {
+            $isSigned = $this->signatureVerifier->verifyIsSignedBy($receivedRequest, $serviceProvider);
+        } catch (SignatureVerificationFailedException | UnsupportedAlgorithmException $exception) {
+            throw new SignatureValidationFailedException(
+                'Validation of the signature in the AuthnRequest failed',
+                $exception
+            );
+        }
+        if (!$isSigned) {
             throw new SignatureValidationFailedException(
                 'Validation of the signature in the AuthnRequest failed'
             );
@@ -178,7 +189,7 @@ class PostBinding implements HttpBinding
     {
         try {
             return ReceivedAuthnRequestPost::parse($params);
-        } catch (ProtocolViolationException $e) {
+        } catch (ProtocolViolationException | InvalidAuthnRequestException $e) {
             throw new BadRequestHttpException(sprintf('Invalid AuthnRequest: %s', $e->getMessage()), $e);
         }
     }

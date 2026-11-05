@@ -34,12 +34,12 @@ final class AssertionValues
     {
         $identifier = $assertion->getSubject()?->getIdentifier();
 
-        return $identifier instanceof NameID ? $identifier->getContent()->getValue() : null;
+        return $identifier instanceof NameID ? trim($identifier->getContent()->getValue()) : null;
     }
 
     public static function issuer(Assertion $assertion): string
     {
-        return $assertion->getIssuer()->getContent()->getValue();
+        return trim($assertion->getIssuer()->getContent()->getValue());
     }
 
     /**
@@ -82,10 +82,10 @@ final class AssertionValues
             return '';
         }
         if ($value instanceof ValueTypeInterface) {
-            return $value->getValue();
+            return trim($value->getValue());
         }
         if ($value instanceof NameIDType) {
-            return $value->getContent()->getValue();
+            return trim($value->getContent()->getValue());
         }
 
         $element = $value->toXML();

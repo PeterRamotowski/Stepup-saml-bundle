@@ -86,7 +86,7 @@ final class ReceivedAuthnRequest
             return false;
         }
 
-        $verifier = SignatureAlgorithms::factory()->getAlgorithm(
+        $verifier = SignatureAlgorithms::forVerification(
             $signature->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue(),
             $publicKey
         );
@@ -97,6 +97,7 @@ final class ReceivedAuthnRequest
             throw new RuntimeException('The verified message is not an AuthnRequest');
         }
         $this->request = $verified;
+        $this->loadExtensionsFromSaml2AuthNRequest();
 
         return true;
     }

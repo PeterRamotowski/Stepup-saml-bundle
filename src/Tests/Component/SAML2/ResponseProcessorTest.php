@@ -55,6 +55,7 @@ use Surfnet\SamlBundle\Signing\CertificateKeys;
 use Surfnet\SamlBundle\Tests\FakePrivateKeyAgent;
 use Symfony\Component\Clock\MockClock;
 use Throwable;
+use TypeError;
 
 class ResponseProcessorTest extends TestCase
 {
@@ -390,6 +391,46 @@ class ResponseProcessorTest extends TestCase
             $this->signedAssertion($this->assertion()),
             self::$agentKeys['current']['certificate']
         )));
+    }
+
+    #[Test]
+    public function hmac_signature_methods_are_rejected_without_a_type_error(): void
+    {
+        $xml = str_replace(C::SIG_RSA_SHA256, C::SIG_HMAC_SHA256, $this->signedAssertion($this->assertion()));
+        $this->expectException(InvalidSignatureException::class);
+        $this->process($this->response($xml));
+    }
+
+    #[Test]
+    public function an_unregistered_agent_key_transport_is_rejected_without_an_agent_call(): void
+    {
+        $agent = $this->useAgent();
+        KeyTransportAlgorithmFactory::unregisterAlgorithmFactory(C::KEY_TRANSPORT_OAEP_MGF1P);
+        $encrypted = $this->encrypted($this->signedAssertion($this->assertion()), self::$agentKeys['current']['certificate']);
+        try {
+            $this->process($this->response($encrypted));
+            $this->fail('Unregistered agent key transport must be rejected.');
+        } catch (InvalidAssertionException $exception) {
+            $this->assertInstanceOf(TypeError::class, $exception->getPrevious());
+        }
+        $this->assertSame([], $agent->requests);
+    }
+
+    #[Test]
+    public function legacy_assertion_accessors_trim_text_values(): void
+    {
+        $xml = str_replace(
+            ['>john-doe<', '>' . self::IDP_ENTITY_ID . '<', '<saml:Issuer>', '</saml:Assertion>'],
+            [">\n  john-doe  \n<", ">\n  " . self::IDP_ENTITY_ID . "  \n<",
+                '<saml:Issuer Format="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified">',
+                '<saml:AttributeStatement><saml:Attribute Name="role"><saml:AttributeValue>'
+                . "\n  student  \n" . '</saml:AttributeValue></saml:Attribute></saml:AttributeStatement></saml:Assertion>'],
+            $this->assertion()
+        );
+        $assertion = $this->process($this->response($this->signedAssertion($xml)));
+        $this->assertSame('john-doe', AssertionValues::nameId($assertion));
+        $this->assertSame(self::IDP_ENTITY_ID, AssertionValues::issuer($assertion));
+        $this->assertSame(['role' => ['student']], AssertionValues::attributes($assertion));
     }
 
     private function useAgent(): FakePrivateKeyAgent

@@ -232,7 +232,7 @@ class SamlAuthenticatorTest extends TestCase
 
         $firewall = 'saml_based';
         $this->logger->shouldReceive('notice');
-        $this->samlAuthenticationStateHandler->shouldReceive('clearRequestId');
+        $this->samlAuthenticationStateHandler->shouldReceive('clearRequestId')->once();
 
         $response = $this->authenticator->onAuthenticationSuccess($request, $token, $firewall);
         $this->assertEquals($response, $redirectResponse);

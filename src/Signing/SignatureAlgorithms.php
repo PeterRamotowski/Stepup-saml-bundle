@@ -19,13 +19,26 @@
 namespace Surfnet\SamlBundle\Signing;
 
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
+use SimpleSAML\XMLSecurity\Alg\Signature\RSA;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
+use SimpleSAML\XMLSecurity\Exception\UnsupportedAlgorithmException;
+use SimpleSAML\XMLSecurity\Key\PublicKey;
 
 /**
  * @internal
  */
 final class SignatureAlgorithms
 {
+    public static function forVerification(string $algorithm, PublicKey $key): SignatureAlgorithmInterface
+    {
+        if (!in_array($algorithm, RSA::getSupportedAlgorithms(), true)) {
+            throw new UnsupportedAlgorithmException(sprintf('Unsupported RSA signature algorithm "%s"', $algorithm));
+        }
+
+        return self::factory()->getAlgorithm($algorithm, $key);
+    }
+
     /**
      * A factory that honours the algorithm blacklist of the installed saml2 container.
      */

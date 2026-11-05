@@ -25,6 +25,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use SimpleSAML\XML\DOMDocumentFactory;
+use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
 
 class AuthnRequestTest extends TestCase
@@ -164,6 +165,43 @@ AUTHNREQUEST_IS_PASSIVE_F_AND_FORCE_AUTHN;
 
         $this->assertEquals($isPassive, $authnRequest->isPassive());
         $this->assertEquals($forceAuthn, $authnRequest->isForceAuthn());
+    }
+
+    #[Test]
+    public function changing_subject_and_scoping_preserves_existing_nested_elements(): void
+    {
+        $xml = str_replace(
+            ['</saml:Subject>', '</samlp:AuthnRequest>'],
+            ['<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"/></saml:Subject>',
+                '<samlp:Scoping ProxyCount="2"><samlp:IDPList><samlp:IDPEntry ProviderID="https://idp.example.org"/>'
+                . '</samlp:IDPList></samlp:Scoping></samlp:AuthnRequest>'],
+            $this->authRequestWithSubject
+        );
+        $original = SAML2AuthnRequest::fromXML(DOMDocumentFactory::fromString($xml)->documentElement);
+        $request = AuthnRequest::createNew($original);
+        $request->setSubject('updated@example.org');
+        $request->setScoping(['https://proxy.example.org'], 3);
+        $updated = SAML2AuthnRequest::fromXML(DOMDocumentFactory::fromString($request->getUnsignedXML())->documentElement);
+
+        $this->assertCount(1, $updated->getSubject()->getSubjectConfirmation());
+        $this->assertEquals($original->getScoping()->getIDPList(), $updated->getScoping()->getIDPList());
+        $this->assertSame('updated@example.org', $request->getNameId());
+        $this->assertSame('https://proxy.example.org', $updated->getScoping()->getRequesterId()[0]->getContent()->getValue());
+    }
+
+    public static function invalidSignatures(): iterable
+    {
+        yield 'malformed' => ['not!base64'];
+        yield 'empty' => [''];
+    }
+
+    #[Test]
+    #[DataProvider('invalidSignatures')]
+    public function deprecated_signed_requests_reject_invalid_base64_signatures(string $signature): void
+    {
+        $request = SAML2AuthnRequest::fromXML(DOMDocumentFactory::fromString($this->authRequestNoSubject)->documentElement);
+        $this->expectException(InvalidRequestException::class);
+        AuthnRequest::createSigned($request, 'encoded-request', null, $signature, 'signature-algorithm');
     }
 
     public static function provideIsPassiveAndForceAuthnCombinations(): array

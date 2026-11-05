@@ -110,6 +110,10 @@ class SignatureVerifier
      */
     public function isSignedWith(AuthnRequest $request, X509 $publicKey): bool
     {
+        if ($request->getSignatureAlgorithm() !== C::SIG_RSA_SHA256) {
+            return false;
+        }
+
         $this->logger->debug(sprintf('Attempting to verify signature with certificate "%s"', $publicKey->getCertificate()));
         $verifier = SignatureAlgorithms::factory()->getAlgorithm(
             C::SIG_RSA_SHA256,

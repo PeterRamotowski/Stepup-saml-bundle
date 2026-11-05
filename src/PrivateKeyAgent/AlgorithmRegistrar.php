@@ -22,11 +22,14 @@ use Closure;
 use SimpleSAML\XMLSecurity\Alg\Encryption\EncryptionAlgorithmInterface;
 use SimpleSAML\XMLSecurity\Alg\KeyTransport\KeyTransportAlgorithmFactory;
 use SimpleSAML\XMLSecurity\Alg\KeyTransport\PrivateKeyAgentRSA as PrivateKeyAgentKeyTransport;
+use SimpleSAML\XMLSecurity\Alg\KeyTransport\RSA as LocalKeyTransport;
 use SimpleSAML\XMLSecurity\Alg\Signature\PrivateKeyAgentRSA as PrivateKeyAgentSignature;
+use SimpleSAML\XMLSecurity\Alg\Signature\RSA as LocalSignature;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
 use SimpleSAML\XMLSecurity\Backend\EncryptionBackend;
 use SimpleSAML\XMLSecurity\Backend\SignatureBackend;
+use SimpleSAML\XMLSecurity\Key\AsymmetricKey;
 use SimpleSAML\XMLSecurity\Key\KeyInterface;
 
 /**
@@ -58,7 +61,9 @@ final readonly class AlgorithmRegistrar
             SignatureAlgorithmFactory::registerAlgorithmFactory(
                 $algorithm,
                 static fn (KeyInterface $key, string $algId): SignatureAlgorithmInterface =>
-                    new PrivateKeyAgentSignature($key, $algId, $signatureBackend()),
+                    $key instanceof AsymmetricKey
+                        ? new LocalSignature($key, $algId)
+                        : new PrivateKeyAgentSignature($key, $algId, $signatureBackend()),
             );
         }
 
@@ -67,7 +72,9 @@ final readonly class AlgorithmRegistrar
             KeyTransportAlgorithmFactory::registerAlgorithmFactory(
                 $algorithm,
                 static fn (KeyInterface $key, string $algId): EncryptionAlgorithmInterface =>
-                    new PrivateKeyAgentKeyTransport($key, $algId, $encryptionBackend()),
+                    $key instanceof AsymmetricKey
+                        ? new LocalKeyTransport($key, $algId)
+                        : new PrivateKeyAgentKeyTransport($key, $algId, $encryptionBackend()),
             );
         }
     }

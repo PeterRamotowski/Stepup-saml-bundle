@@ -22,20 +22,11 @@ use Surfnet\SamlBundle\SAML2\AuthnRequestFactory;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\Routing\Attribute\Route;
 
 class AcsInitController
 {
-    /**
-     * @Route(
-     *     "/saml/acs/init",
-     *     name="saml_acs_init",
-     *     methods={"GET"},
-     *     requirements={
-     *         "_format": "xml",
-     *     },
-     * )
-     */
+    #[Route('/saml/acs/init', name: 'saml_acs_init', methods: ['GET'])]
     public function __invoke(
         Request $httpRequest,
         HostedEntities $hostedEntities,
@@ -53,8 +44,7 @@ class AcsInitController
                 'Starting SSO request with ID %s to IDP %s',
                 $request->getRequestId(),
                 $idp->getEntityId()
-            ),
-            ['request' => $request->getUnsignedXML()]
+            )
         );
 
         // Store the request so we can validate the response on acs respond.
@@ -73,7 +63,7 @@ class AcsInitController
 ```
 
 The `$idp` argument should be wired to the
-`surfnet_saml.hosted.identity_provider` service. The `$context` argument is an
+`surfnet_saml.remote.idp` service. The `$context` argument is an
 object from your own application where you store some state in the session,
 like the request or request ID that was sent.
 
@@ -93,20 +83,11 @@ use Surfnet\SamlBundle\Http\PostBinding;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
-use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\Routing\Attribute\Route;
 
 class AcsRespondController
 {
-    /**
-     * @Route(
-     *     "/saml/acs",
-     *     name="saml_acs_respond",
-     *     methods={"POST"},
-     *     requirements={
-     *         "_format": "xml",
-     *     },
-     * )
-     */
+    #[Route('/saml/acs', name: 'saml_acs_respond', methods: ['POST'])]
     public function __invoke(
         HostedEntities $hostedEntities,
         AcsContextInterface $context,
@@ -123,13 +104,6 @@ class AcsRespondController
             );
         }
 
-        $logger->info(
-            'Received HTTP request on ACS endpoint',
-            [
-                'SAMLResponse' => base64_decode($response),
-            ]
-        );
-
         if (!$context->hasAuthnRequest()) {
             $logger->error('Received assertion but no authn request found in context: session lost?');
 
@@ -144,39 +118,23 @@ class AcsRespondController
             );
         } catch (Exception $e) {
             $logger->error(
-                'Error processing ACS request: ' . $e->getMessage(),
-                [
-                    'exception' => $e,
-                ]
+                'Error processing ACS request',
+                ['exception_class' => $e::class]
             );
 
             throw new BadRequestHttpException('Error processing ACS request');
         }
 
-        $logger->info(
-            'Processed ACS authn request',
-            [
-                'attributes' => AssertionValues::attributes($assertion),
-            ]
-        );
-
-        $logger->debug(
-            'Full assertion in received authn response',
-            [
-                'assertion' => (string) $assertion,
-            ]
-        );
-
         $inResponseTo = AssertionValues::inResponseTo($assertion);
         $requestId = $context->getAuthnRequest()->getRequestId();
         if ($inResponseTo !== $requestId) {
-            throw new BadRequestException(
-                "InResponseTo of asssertion {$inResponseTo} does not match request ID {$requestId}"
+            throw new BadRequestHttpException(
+                "InResponseTo of assertion {$inResponseTo} does not match request ID {$requestId}"
             );
         }
 
         // You should clear the authn request from your session state, and set the user as logged
-        // in based on the attributes found        
+        // in based on the attributes found
         $context->clearAuthnRequest();
 
         return new RedirectResponse(
@@ -186,7 +144,7 @@ class AcsRespondController
 }
 ```
 
-That is more than a few lines of code, but most of it is just logging. The SAML
+Avoid logging raw SAML messages or user attributes in application logs. The SAML
 bundle checks that the assertion answers the Response's InResponseTo, but not
 that it answers the request your application sent, so that check is included
 in this example.
@@ -225,7 +183,7 @@ security:
   # authentications with the stepup-saml-bundle are stated below
 
   access_control:
-    - { path: ^/saml, roles: IS_AUTHENTICATED_ANONYMOUSLY, requires_channel: https }
+    - { path: ^/saml, roles: PUBLIC_ACCESS, requires_channel: https }
     - { path: ^/, roles: IS_AUTHENTICATED_FULLY, requires_channel: https }
   
   providers:
@@ -252,9 +210,8 @@ security:
             - '@surfnet_saml.saml.attribute_dictionary'
             - '@logger'
 
-    # Be sure to create an alias to the `surfnet_saml.saml_provider`, otherwise Symfony will not be able to autowire the
-    # `security.listener.user_provider` service.
-    Surfnet\ServiceProviderDashboard\Infrastructure\DashboardSamlBundle\Security\Authentication\Provider\SamlProvider:
+    # Make the provider available for autowiring by its application class.
+    YourApp\Security\Authentication\Provider\SamlProvider:
         alias: surfnet_saml.saml_provider
 
 ```

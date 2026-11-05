@@ -229,7 +229,7 @@ final class ReceivedAuthnRequestQueryString implements SignatureVerifiable
 
     public function verify(PublicKey $key): bool
     {
-        $verifier = SignatureAlgorithms::factory()->getAlgorithm($this->getSignatureAlgorithm(), $key);
+        $verifier = SignatureAlgorithms::forVerification($this->getSignatureAlgorithm(), $key);
 
         return $verifier->verify($this->getSignedRequestPayload(), $this->getDecodedSignature());
     }

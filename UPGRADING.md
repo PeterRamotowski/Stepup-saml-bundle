@@ -53,7 +53,9 @@ issuer. Use `Surfnet\SamlBundle\SAML2\Response\AssertionValues` for the values t
 | `$assertion->getAttributes()` | `AssertionValues::attributes($assertion)` |
 
 `AssertionValues::attributes()` returns `array<string, list<string>>` and merges equally named attributes over all
-attribute statements. The `SamlAttributesBadge` of `SamlAuthenticator` carries the same structure.
+attribute statements. Text attribute values, NameID and Issuer retain the previous trimming behavior; serialized XML
+attribute values are preserved. This does not relax parsing: saml2 rejects whitespace around a default entity-format
+Issuer as an invalid URI before these accessors run. The `SamlAttributesBadge` of `SamlAuthenticator` carries the same structure.
 `AssertionAdapter`, `AttributeSet::createFrom()` and `InResponseTo::assertEquals()` keep their API.
 
 ## Responses
@@ -71,8 +73,15 @@ attribute statements. The `SamlAttributesBadge` of `SamlAuthenticator` carries t
   key transport are rejected).
 - A Response must carry exactly one assertion. An encrypted assertion must carry exactly one `EncryptedKey`.
   Encrypted NameIDs and shared-key (symmetric) decryption are not supported.
-- The subject confirmation InResponseTo must match the Response's InResponseTo. As before, `PostBinding` does not
-  compare it with the request your application sent: `SamlAuthenticator` does, custom ACS code still has to.
+- When both are present, the subject confirmation InResponseTo must match the Response's InResponseTo. As before,
+  `PostBinding` does not compare it with the request your application sent: `SamlAuthenticator` does, custom ACS
+  code still has to. The processor retains the legacy acceptance of missing SubjectConfirmations or missing
+  Recipient, InResponseTo and NotOnOrAfter fields; the configured validators check those fields when present.
+  Custom ACS code must require the confirmation fields its SSO profile needs, correlate the assertion with a
+  pending request, and consume that request before establishing a session.
+- `SamlAuthenticator` rejects a missing or mismatched confirmation InResponseTo against its pending request ID and
+  clears that ID on authentication success. There is no separate assertion replay cache; cross-session replay
+  protection and unsolicited SSO policy remain application responsibilities.
 - InResponseTo values must be NCNames, as saml2 7 requires.
 - An invalid or empty base64 `SAMLResponse` produces a `BadRequestHttpException`.
 - Non-success statuses keep their mapping to `AuthnFailedSamlResponseException` and
@@ -88,10 +97,20 @@ attribute statements. The `SamlAttributesBadge` of `SamlAuthenticator` carries t
 - `AuthnRequest::getDestination()`, `AuthnRequest::getServiceProvider()` and
   `ReceivedAuthnRequest::getAssertionConsumerServiceURL()` throw `Surfnet\SamlBundle\Exception\RuntimeException`
   instead of a `TypeError` when the value is missing.
+- Deprecated `AuthnRequest::createSigned()` rejects empty or malformed base64 signatures with `InvalidRequestException`.
+  Its verifier accepts RSA-SHA256 only. It still rebuilds the signed query because its API does not receive the
+  original encoded query; migrate incoming Redirect requests to `ReceivedAuthnRequestQueryString::parse()` and
+  `RedirectBinding`, which preserve the signed bytes. Empty and `"0"` RelayState values are retained.
 - `SignatureVerifiable::verify()`, `ReceivedAuthnRequestQueryString::verify()` and `ReceivedAuthnRequestPost::verify()`
   take a `SimpleSAML\XMLSecurity\Key\PublicKey`.
 - `PostBinding::receiveSignedAuthnRequestFrom()` returns the request as covered by the XML signature, and rejects it
-  when its Destination or Issuer differ from the values checked before verification.
+  when its Destination or Issuer differ from the values checked before verification. Extensions are also reloaded
+  from that verified request.
+- `setSubject()` preserves SubjectConfirmations and `setScoping()` preserves the IDPList.
+- Malformed XML, schema violations and unexpected message types produce `BadRequestHttpException` (HTTP 400)
+  for both POST and Redirect AuthnRequests. Protocol violations also produce HTTP 400 in both bindings.
+- XML signature verification accepts RSA signature methods only; unsupported methods such as HMAC are rejected
+  without a key-type error.
 - Saml2 7 rejects `NameIDPolicy` with the transient format and `AllowCreate="true"` (SAML errata E14). Requests
   received through HTTP-Redirect are normalised before parsing, because their signature covers the query string.
   Requests received through HTTP-POST are not, because the XML signature covers the attribute; these and other
@@ -121,6 +140,14 @@ do not enable it.
 - An identity with `use_private_key_agent: true` must not configure `private_key`, and its `public_key` must point
   at the certificate of an agent key with the `sign` operation. The bundle checks this when the container is
   compiled and when the kernel boots, so the certificate files must be readable at boot.
+- `private_key_agent.algorithms.signature` must include RSA-SHA256 when a hosted identity signs through the agent;
+  the container rejects configurations that omit it.
+- `private_key_agent.enabled` accepts `%env(bool:PKA_ENABLED)%`. It is resolved when the container is compiled,
+  because it controls service registration. Rebuild the container cache after changing it. Tokens and the agent
+  URL remain lazy. Hosted `use_private_key_agent` flags still require literal booleans.
+- Local-key operations do not initialize the agent backend or resolve its tokens and URL.
+- Agent key-name validation reports only invalid names, without token values. Unregistered or unsupported agent
+  key-transport algorithms produce `InvalidAssertionException` instead of a key-type error.
 - The bundle never falls back to a local private key. Agent failures surface as
   `SimpleSAML\XMLSecurity\Exception\PrivateKeyAgentExceptionInterface` exceptions (for example
   `AgentUnavailableException`, `AuthenticationException`, `AuthorizationException`); the bundle does not map them to

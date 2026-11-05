@@ -21,6 +21,7 @@ namespace Surfnet\SamlBundle\SAML2;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
 use Surfnet\SamlBundle\Exception\RuntimeException;
+use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
 use Surfnet\SamlBundle\SAML2\Extensions\ExtensionsMapperTrait;
 
 class AuthnRequest
@@ -77,10 +78,14 @@ class AuthnRequest
     ): self {
         $authnRequest = new self($request);
         $authnRequest->rawRequest = $rawRequest;
-        if ($relayState) {
+        if ($relayState !== null) {
             $authnRequest->relayState = $relayState;
         }
-        $authnRequest->signature = base64_decode($signature, true);
+        $decodedSignature = base64_decode($signature, true);
+        if ($decodedSignature === false || $decodedSignature === '') {
+            throw new InvalidRequestException('The AuthnRequest signature must be a non-empty base64 string');
+        }
+        $authnRequest->signature = $decodedSignature;
         $authnRequest->signatureAlgorithm = $signatureAlgorithm;
 
         return $authnRequest;
@@ -182,7 +187,7 @@ class AuthnRequest
     {
         $queryParams = [self::PARAMETER_REQUEST => $this->rawRequest];
 
-        if ($this->relayState) {
+        if ($this->relayState !== null) {
             $queryParams[self::PARAMETER_RELAY_STATE] = $this->relayState;
         }
 

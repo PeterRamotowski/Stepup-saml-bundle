@@ -18,7 +18,9 @@
 
 namespace Surfnet\SamlBundle\Http;
 
+use SimpleSAML\SAML2\Exception\ProtocolViolationException;
 use Surfnet\SamlBundle\Entity\ServiceProviderRepository;
+use Surfnet\SamlBundle\Exception\InvalidAuthnRequestException;
 use Surfnet\SamlBundle\Exception\LogicException;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
 use Surfnet\SamlBundle\Http\Exception\UnknownServiceProviderException;
@@ -47,7 +49,7 @@ class RedirectBinding implements HttpBinding
     {
         $query = $this->getAuthnRequestQueryString($request);
 
-        $authnRequest = ReceivedAuthnRequest::fromHttpRedirectBinding($query->getDecodedSamlRequest());
+        $authnRequest = $this->parseAuthnRequest($query->getDecodedSamlRequest());
 
         /**
          * Defence in depth, unsigned requests do not require the Destination attribute to be set
@@ -87,7 +89,7 @@ class RedirectBinding implements HttpBinding
             );
         }
 
-        $authnRequest = ReceivedAuthnRequest::fromHttpRedirectBinding($query->getDecodedSamlRequest());
+        $authnRequest = $this->parseAuthnRequest($query->getDecodedSamlRequest());
 
         /**
          * 3.4.5.2 Security Considerations
@@ -127,6 +129,15 @@ class RedirectBinding implements HttpBinding
         }
 
         return $authnRequest;
+    }
+
+    private function parseAuthnRequest(string $decodedRequest): ReceivedAuthnRequest
+    {
+        try {
+            return ReceivedAuthnRequest::fromHttpRedirectBinding($decodedRequest);
+        } catch (ProtocolViolationException | InvalidAuthnRequestException $exception) {
+            throw new BadRequestHttpException(sprintf('Invalid AuthnRequest: %s', $exception->getMessage()), $exception);
+        }
     }
 
     private function getFullRequestUri(Request $request): string

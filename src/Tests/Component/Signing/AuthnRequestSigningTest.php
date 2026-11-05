@@ -18,6 +18,7 @@
 
 namespace Surfnet\SamlBundle\Tests\Component\Signing;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -226,6 +227,38 @@ AUTHNREQUEST_NO_SUBJECT;
         );
     }
 
+    #[Test]
+    public function deprecated_verification_does_not_ignore_the_declared_algorithm(): void
+    {
+        // Sign a query declaring SHA512 with SHA256: the legacy verifier used to ignore that mismatch.
+        $request = $this->createSignedAuthnRequest(
+            $this->encodeDataToSignWithPhpsHttpBuildQuery(...),
+            declaredAlgorithm: C::SIG_RSA_SHA512
+        );
+        $verifier = new SignatureVerifier(new KeyLoader(), new NullLogger());
+
+        $this->assertFalse($verifier->isSignedWith($request, X509::createFromCertificateData($this->getPublicKey())));
+    }
+
+    public static function falsyRelayStates(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'zero' => ['0'];
+    }
+
+    #[Test]
+    #[DataProvider('falsyRelayStates')]
+    public function deprecated_verification_preserves_present_relay_state_values(string $relayState): void
+    {
+        $request = $this->createSignedAuthnRequest(
+            $this->encodeDataToSignWithPhpsHttpBuildQuery(...),
+            relayState: $relayState
+        );
+        $verifier = new SignatureVerifier(new KeyLoader(), new NullLogger());
+
+        $this->assertTrue($verifier->isSignedWith($request, X509::createFromCertificateData($this->getPublicKey())));
+    }
+
     private function encodeDataToSignWithPhpsHttpBuildQuery(array $params): string
     {
         return http_build_query($params);
@@ -249,8 +282,12 @@ AUTHNREQUEST_NO_SUBJECT;
      * @param callable $prepareDataToSign Expects an associative array of data to sign and returns a string to sign
      * @param null|string $customSignature Signature to be used instead of signature to sign data to sign with
      */
-    private function createSignedAuthnRequest(callable $prepareDataToSign, ?string $customSignature = null): AuthnRequest
-    {
+    private function createSignedAuthnRequest(
+        callable $prepareDataToSign,
+        ?string $customSignature = null,
+        string $declaredAlgorithm = C::SIG_RSA_SHA256,
+        ?string $relayState = null,
+    ): AuthnRequest {
         $keyData    = file_get_contents(__DIR__.'/../../../Resources/keys/development_privatekey.pem');
         $privateKey = self::createSigner($keyData);
 
@@ -261,7 +298,10 @@ AUTHNREQUEST_NO_SUBJECT;
         $encodedRequest = base64_encode(gzdeflate($requestAsXml));
         $queryParams    = [AuthnRequest::PARAMETER_REQUEST => $encodedRequest];
 
-        $queryParams[AuthnRequest::PARAMETER_SIGNATURE_ALGORITHM] = $privateKey->getAlgorithmId();
+        if ($relayState !== null) {
+            $queryParams[AuthnRequest::PARAMETER_RELAY_STATE] = $relayState;
+        }
+        $queryParams[AuthnRequest::PARAMETER_SIGNATURE_ALGORITHM] = $declaredAlgorithm;
 
         $toSign = $prepareDataToSign($queryParams);
         $signature = $customSignature === null ? base64_encode((string) $privateKey->sign($toSign)) : base64_encode($customSignature);
@@ -271,9 +311,9 @@ AUTHNREQUEST_NO_SUBJECT;
         return AuthnRequest::createSigned(
             $saml2AuthnRequest,
             $encodedRequest,
-            null,
+            $relayState,
             $signature,
-            (string) $privateKey->getAlgorithmId()
+            $declaredAlgorithm
         );
     }
 

@@ -68,7 +68,7 @@ class SurfnetSamlExtension extends Extension
     ): void {
         $config = (new Processor())->processConfiguration(
             new PrivateKeyAgentConfiguration(),
-            array_column($configs, 'private_key_agent')
+            PrivateKeyAgentConfiguration::resolveEnabled(array_column($configs, 'private_key_agent'), $container)
         );
         $signingIdentities = $this->parsePrivateKeyAgentIdentities($hosted);
 
@@ -81,6 +81,16 @@ class SurfnetSamlExtension extends Extension
             }
 
             return;
+        }
+
+        if ($signingIdentities !== [] && !in_array(
+            PrivateKeyAgentConfiguration::REQUIRED_SIGNATURE_ALGORITHM,
+            $config['algorithms']['signature'],
+            true
+        )) {
+            throw new InvalidConfigurationException(
+                'surfnet_saml.private_key_agent.algorithms.signature must include RSA-SHA256 when an identity uses the agent'
+            );
         }
 
         $loader->load('services_private_key_agent.yaml');

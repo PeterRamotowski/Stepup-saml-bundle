@@ -108,6 +108,62 @@ class SurfnetSamlExtensionPrivateKeyAgentTest extends TestCase
         self::assertSame([], $container->getDefinition('surfnet_saml.private_key_agent.key_map')->getArgument(1));
     }
 
+    #[Test]
+    public function invalid_key_names_do_not_disclose_any_bearer_token(): void
+    {
+        $agent = $this->agent();
+        $agent['keys']['invalid.name'] = $agent['keys']['sp-signing'];
+        $agent['keys']['invalid.name']['token'] = 'other-secret-token';
+
+        try {
+            $this->load([$this->hosted() + ['private_key_agent' => $agent]]);
+            self::fail('An invalid key name must fail configuration loading.');
+        } catch (InvalidConfigurationException $exception) {
+            self::assertStringContainsString('invalid.name', $exception->getMessage());
+            self::assertStringNotContainsString('secret-token', $exception->getMessage());
+            self::assertStringNotContainsString('certificate_file', $exception->getMessage());
+        }
+    }
+
+    #[Test]
+    public function local_identities_do_not_require_sha256_in_the_agent_signature_list(): void
+    {
+        $agent = $this->agent();
+        $agent['algorithms']['signature'] = [C::SIG_RSA_SHA512];
+        $container = $this->load([$this->hosted() + ['private_key_agent' => $agent]]);
+
+        self::assertSame([], $container->getDefinition('surfnet_saml.private_key_agent.key_map')->getArgument(1));
+    }
+
+    public static function enabledEnvironmentValues(): iterable
+    {
+        yield 'enabled' => [true];
+        yield 'disabled' => [false];
+    }
+
+    #[Test]
+    #[DataProvider('enabledEnvironmentValues')]
+    public function an_environment_boolean_controls_agent_service_registration(bool $enabled): void
+    {
+        $variable = 'BUNDLE_TEST_PKA_ENABLED';
+        $previous = $_ENV[$variable] ?? null;
+        $_ENV[$variable] = $enabled ? 'true' : 'false';
+        try {
+            $container = new ContainerBuilder();
+            $agent = $enabled ? $this->agent() : [];
+            $agent['enabled'] = $container->getParameterBag()->resolveValue('%env(bool:' . $variable . ')%');
+            (new SurfnetSamlExtension())->load([$this->hosted() + ['private_key_agent' => $agent]], $container);
+
+            self::assertSame($enabled, $container->hasDefinition('surfnet_saml.private_key_agent.algorithm_registrar'));
+        } finally {
+            if ($previous === null) {
+                unset($_ENV[$variable]);
+            } else {
+                $_ENV[$variable] = $previous;
+            }
+        }
+    }
+
     /**
      * @return iterable<string, array{array<string, mixed>, string}>
      */
@@ -162,6 +218,10 @@ class SurfnetSamlExtensionPrivateKeyAgentTest extends TestCase
         yield 'RSA-SHA1 signatures' => [
             $hosted() + $agent(['algorithms' => ['signature' => [C::SIG_RSA_SHA1]]]),
             'Unsupported agent signature algorithm',
+        ];
+        yield 'agent signing without RSA-SHA256' => [
+            $hosted(true) + $agent(['algorithms' => ['signature' => [C::SIG_RSA_SHA512]]]),
+            'must include RSA-SHA256',
         ];
         yield 'RSA v1.5 key transport' => [
             $hosted() + $agent(['algorithms' => ['key_transport' => [C::KEY_TRANSPORT_RSA_1_5]]]),
