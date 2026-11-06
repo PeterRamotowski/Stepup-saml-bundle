@@ -71,6 +71,8 @@ MESSAGE;
 
     public static function invalidTransportPayloads(): iterable
     {
+        yield 'missing parameter' => [null];
+        yield 'empty parameter' => [''];
         yield 'invalid base64' => ['!invalid!'];
         yield 'encoded non-XML data' => [base64_encode('not XML')];
         yield 'deflated rather than plain XML' => [base64_encode(gzdeflate('<request/>'))];
@@ -78,9 +80,10 @@ MESSAGE;
 
     #[Test]
     #[DataProvider('invalidTransportPayloads')]
-    public function transport_errors_are_http_bad_requests(string $payload): void
+    public function transport_errors_are_http_bad_requests(?string $payload): void
     {
-        $request = Request::create('https://idp.example.org/sso', 'POST', ['SAMLRequest' => $payload]);
+        $parameters = $payload === null ? [] : ['SAMLRequest' => $payload];
+        $request = Request::create('https://idp.example.org/sso', 'POST', $parameters);
         $this->expectException(BadRequestHttpException::class);
         $this->postBinding->receiveSignedAuthnRequestFrom($request);
     }

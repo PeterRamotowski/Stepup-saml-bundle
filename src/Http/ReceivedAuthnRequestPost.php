@@ -39,11 +39,12 @@ final class ReceivedAuthnRequestPost implements SignatureVerifiable
 
     public static function parse(array $parameters): self
     {
-        if (base64_decode((string) $parameters[self::PARAMETER_REQUEST], true) === false) {
+        $samlRequest = $parameters[self::PARAMETER_REQUEST] ?? null;
+        if (!is_string($samlRequest) || $samlRequest === '' || base64_decode($samlRequest, true) === false) {
             throw new InvalidRequestException('Failed decoding SAML request, did not receive a valid base64 string');
         }
 
-        $parsed = new self($parameters[self::PARAMETER_REQUEST]);
+        $parsed = new self($samlRequest);
 
         if (isset($parameters[self::PARAMETER_RELAY_STATE])) {
             $parsed->relayState = $parameters[self::PARAMETER_RELAY_STATE];
