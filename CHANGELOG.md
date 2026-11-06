@@ -2,8 +2,12 @@
 - `private_key_agent.enabled` accepts uncast `%env()%` values, resolved at container compilation; agent tokens and
   URL stay lazy
 - Guard POST AuthnRequest and `ResponseProcessor` XML signatures against forbidden transforms
-- Return HTTP 400 for AuthnRequests over POST and Redirect with query, base64 or inflate errors, malformed XML,
-  schema violations or protocol violations
+- Return HTTP 400 for AuthnRequests over POST and Redirect with a missing parameter, query, base64 or inflate errors,
+  malformed XML, schema violations or protocol violations
+- Write AuthnRequest `IssueInstant` in UTC regardless of the PHP default timezone
+- `SamlAuthenticator` and `SamlInteractionProvider` store the pending request ID only after the AuthnRequest is signed
+- Reject an `EncryptedKey` outside the `KeyInfo` of the `EncryptedData` with an explicit `InvalidAssertionException`
+- `Entity\IdentityProvider` wraps saml2's final `Configuration\IdentityProvider` instead of extending it
 - Try every configured certificate when verifying POST AuthnRequest signatures, so rollover certificates work
 - Reject malformed signatures and unsupported algorithms in the deprecated AuthnRequest path, where unsigned requests
   now verify as false; preserve empty RelayState
@@ -34,7 +38,8 @@
 Backward compatibility breaks: see [UPGRADING.md](UPGRADING.md). In short: saml2 7 types throughout the public API,
 `PublicKey` instead of `XMLSecurityKey` for verification, `Dom\*` instead of `DOM*` in `Signable` and `Metadata`,
 a new `PostBinding` constructor argument, exactly one assertion and one `EncryptedKey` per Response, no encrypted
-NameIDs and HTTP 400 for invalid AuthnRequests over POST and Redirect.
+NameIDs, `Entity\IdentityProvider` no longer extending saml2's configuration class and HTTP 400 for invalid
+AuthnRequests over POST and Redirect.
 
 # 7.0.2
 - Fix version constraint error in `symfony/templating` requirement

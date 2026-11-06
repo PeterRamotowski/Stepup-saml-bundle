@@ -40,6 +40,12 @@ application for `SAML2\`, `RobRichards\` and `DOMDocument`/`DOMElement` usages a
 | `RobRichards\XMLSecLibs\XMLSecurityKey` (signing) | `SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface` |
 | `DOMDocument`, `DOMElement`, `DOMNode` in `Signable` and `Metadata` | `Dom\XMLDocument`, `Dom\Element`, `Dom\Node` |
 
+`Surfnet\SamlBundle\Entity\IdentityProvider` no longer extends saml2's `Configuration\IdentityProvider`, which is
+final in saml2 7. It wraps it and implements `CertificateProvider`, `DecryptionProvider`, `EntityIdProvider` and
+`Queryable`. Pass `$identityProvider->getConfiguration()` to saml2 APIs and `instanceof` checks that require
+`SimpleSAML\SAML2\Configuration\IdentityProvider`. `Entity\ServiceProvider` still extends saml2's
+`Configuration\ServiceProvider`.
+
 ## Assertions
 
 The saml2 7 assertion no longer offers `getNameId()`, `getAttributes()`, `getSubjectConfirmation()` or a string
@@ -170,7 +176,8 @@ do not enable it.
 - The agent algorithms are registered with xml-security's process-wide algorithm factories when the kernel boots.
   In worker SAPIs (FrankenPHP, RoadRunner, Swoole) the registration therefore lives as long as the worker.
 - `KeyPair::$usePrivateKeyAgent` and `MetadataConfiguration::$usePrivateKeyAgent` select agent signing for metadata.
-  `ResponseProcessor` takes an optional `KeyMap` as fourth constructor argument.
+  `ResponseProcessor` takes an optional `KeyMap` as fourth constructor argument. `Entity\ServiceProvider` and
+  `Entity\IdentityProvider` expose `usesPrivateKeyAgent()`.
 - `AuthnRequestFactory::createNewRequest()` signs through the agent for an agent SP. Its error for a missing local
   key now names the entity.
 
@@ -180,7 +187,9 @@ do not enable it.
   `xs:normalizedString` fail with a PHP `Error` (class not found) in saml2 rc4, so a Response carrying them cannot
   be processed. Fixed in saml2 after rc4, not yet released.
 - An encrypted assertion is decrypted with the first `EncryptedKey` of its `KeyInfo` only; the bundle rejects
-  assertions with more than one `EncryptedKey`, so multi-recipient encryption is not supported.
+  assertions with more than one `EncryptedKey`, so multi-recipient encryption is not supported. An `EncryptedKey`
+  placed next to the `EncryptedData` instead of inside its `KeyInfo` (the `RetrievalMethod` layout) is rejected
+  with `InvalidAssertionException`; 7.x decrypted it.
 - `xmlenc11#rsa-oaep` without explicit `DigestMethod`/`MGF` parameters cannot be decrypted through the Private Key
   Agent (see the README). Local keys are not affected.
 - The `HTTPRedirect` binding and the `Response\Processor` of saml2 rc4 are not used by the bundle, because they emit
