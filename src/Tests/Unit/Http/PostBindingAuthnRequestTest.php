@@ -21,6 +21,7 @@ namespace Surfnet\SamlBundle\Tests\Http;
 use LogicException;
 use Mockery as m;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\DataProviderExternal;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -64,6 +65,22 @@ MESSAGE;
     public function invalid_authn_request_xml_is_an_http_bad_request(string $xml): void
     {
         $request = Request::create('https://idp.example.org/sso', 'POST', ['SAMLRequest' => base64_encode($xml)]);
+        $this->expectException(BadRequestHttpException::class);
+        $this->postBinding->receiveSignedAuthnRequestFrom($request);
+    }
+
+    public static function invalidTransportPayloads(): iterable
+    {
+        yield 'invalid base64' => ['!invalid!'];
+        yield 'encoded non-XML data' => [base64_encode('not XML')];
+        yield 'deflated rather than plain XML' => [base64_encode(gzdeflate('<request/>'))];
+    }
+
+    #[Test]
+    #[DataProvider('invalidTransportPayloads')]
+    public function transport_errors_are_http_bad_requests(string $payload): void
+    {
+        $request = Request::create('https://idp.example.org/sso', 'POST', ['SAMLRequest' => $payload]);
         $this->expectException(BadRequestHttpException::class);
         $this->postBinding->receiveSignedAuthnRequestFrom($request);
     }

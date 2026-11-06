@@ -33,6 +33,7 @@ use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Entity\ServiceProviderRepository;
 use Surfnet\SamlBundle\Exception\InvalidAuthnRequestException;
 use Surfnet\SamlBundle\Http\Exception\AuthnFailedSamlResponseException;
+use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
 use Surfnet\SamlBundle\Http\Exception\NoAuthnContextSamlResponseException;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
 use Surfnet\SamlBundle\Http\Exception\UnknownServiceProviderException;
@@ -189,7 +190,7 @@ class PostBinding implements HttpBinding
     {
         try {
             return ReceivedAuthnRequestPost::parse($params);
-        } catch (ProtocolViolationException | InvalidAuthnRequestException $e) {
+        } catch (ProtocolViolationException | InvalidAuthnRequestException | InvalidRequestException $e) {
             throw new BadRequestHttpException(sprintf('Invalid AuthnRequest: %s', $e->getMessage()), $e);
         }
     }
