@@ -136,7 +136,9 @@ surfnet_saml:
 
 - `use_private_key_agent` exists for `service_provider`, `identity_provider` and `metadata`. The identity's
   `public_key` must be the certificate file of an agent key with the `sign` operation.
-- `enabled` may use `%env(bool:PKA_ENABLED)%`; rebuild the container cache after changing that variable.
+- `enabled` may use `%env(PKA_ENABLED)%` without a cast. Values such as `true`/`false`, `1`/`0`, `on`/`off`
+  and `yes`/`no` are converted to booleans; invalid boolean values are rejected. Symfony rejects env casts such as
+  `%env(bool:PKA_ENABLED)%` during extension compilation. Rebuild the container cache after changing the variable.
   Hosted `use_private_key_agent` flags require literal booleans.
 - `algorithms.signature` must include RSA-SHA256 when a hosted identity signs through the agent.
 - Local-key operations do not initialize the agent backend or resolve its tokens and URL.

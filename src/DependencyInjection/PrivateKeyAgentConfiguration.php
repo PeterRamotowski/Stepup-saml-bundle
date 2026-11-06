@@ -57,10 +57,17 @@ final class PrivateKeyAgentConfiguration implements ConfigurationInterface
         foreach ($configs as $index => $config) {
             if (is_array($config) && is_string($config['enabled'] ?? null)) {
                 // This flag changes the service graph, so resolve it before processing the configuration tree.
-                $config['enabled'] = $container->resolveEnvPlaceholders(
+                $value = $container->resolveEnvPlaceholders(
                     $container->getParameterBag()->resolveValue($config['enabled']),
                     true
                 );
+                $enabled = filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+                if ($enabled === null) {
+                    throw new InvalidConfigurationException(
+                        'surfnet_saml.private_key_agent.enabled must resolve to a boolean value'
+                    );
+                }
+                $config['enabled'] = $enabled;
                 $configs[$index] = $config;
             }
         }

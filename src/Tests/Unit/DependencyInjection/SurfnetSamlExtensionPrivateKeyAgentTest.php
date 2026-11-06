@@ -25,7 +25,9 @@ use SimpleSAML\XMLSecurity\Constants as C;
 use Surfnet\SamlBundle\DependencyInjection\SurfnetSamlExtension;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
+use Symfony\Component\DependencyInjection\Compiler\MergeExtensionConfigurationPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Exception\RuntimeException as ContainerRuntimeException;
 
 class SurfnetSamlExtensionPrivateKeyAgentTest extends TestCase
 {
@@ -137,24 +139,54 @@ class SurfnetSamlExtensionPrivateKeyAgentTest extends TestCase
 
     public static function enabledEnvironmentValues(): iterable
     {
-        yield 'enabled' => [true];
-        yield 'disabled' => [false];
+        yield 'true' => ['true', true];
+        yield 'false' => ['false', false];
+        yield 'one' => ['1', true];
+        yield 'zero' => ['0', false];
+        yield 'on' => ['on', true];
+        yield 'off' => ['off', false];
     }
 
     #[Test]
     #[DataProvider('enabledEnvironmentValues')]
-    public function an_environment_boolean_controls_agent_service_registration(bool $enabled): void
+    public function an_environment_boolean_controls_registration_through_the_extension_merge_pass(
+        string $value,
+        bool $enabled,
+    ): void {
+        $container = $this->loadWithEnabledEnvironment($value);
+        self::assertSame($enabled, $container->hasDefinition('surfnet_saml.private_key_agent.algorithm_registrar'));
+    }
+
+    #[Test]
+    public function an_invalid_environment_boolean_is_rejected_during_extension_merging(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('enabled must resolve to a boolean value');
+        $this->loadWithEnabledEnvironment('invalid-boolean');
+    }
+
+    #[Test]
+    public function symfony_rejects_casts_when_agent_enablement_is_resolved_at_compile_time(): void
+    {
+        $this->expectException(ContainerRuntimeException::class);
+        $this->expectExceptionMessage('incompatible with resolution at compile time');
+        $this->loadWithEnabledEnvironment('false', true);
+    }
+
+    private function loadWithEnabledEnvironment(string $value, bool $cast = false): ContainerBuilder
     {
         $variable = 'BUNDLE_TEST_PKA_ENABLED';
         $previous = $_ENV[$variable] ?? null;
-        $_ENV[$variable] = $enabled ? 'true' : 'false';
+        $_ENV[$variable] = $value;
         try {
             $container = new ContainerBuilder();
-            $agent = $enabled ? $this->agent() : [];
-            $agent['enabled'] = $container->getParameterBag()->resolveValue('%env(bool:' . $variable . ')%');
-            (new SurfnetSamlExtension())->load([$this->hosted() + ['private_key_agent' => $agent]], $container);
+            $agent = $this->agent();
+            $agent['enabled'] = '%env(' . ($cast ? 'bool:' : '') . $variable . ')%';
+            $container->registerExtension(new SurfnetSamlExtension());
+            $container->loadFromExtension('surfnet_saml', $this->hosted() + ['private_key_agent' => $agent]);
+            (new MergeExtensionConfigurationPass())->process($container);
 
-            self::assertSame($enabled, $container->hasDefinition('surfnet_saml.private_key_agent.algorithm_registrar'));
+            return $container;
         } finally {
             if ($previous === null) {
                 unset($_ENV[$variable]);

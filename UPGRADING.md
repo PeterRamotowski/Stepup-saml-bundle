@@ -142,9 +142,11 @@ do not enable it.
   compiled and when the kernel boots, so the certificate files must be readable at boot.
 - `private_key_agent.algorithms.signature` must include RSA-SHA256 when a hosted identity signs through the agent;
   the container rejects configurations that omit it.
-- `private_key_agent.enabled` accepts `%env(bool:PKA_ENABLED)%`. It is resolved when the container is compiled,
-  because it controls service registration. Rebuild the container cache after changing it. Tokens and the agent
-  URL remain lazy. Hosted `use_private_key_agent` flags still require literal booleans.
+- `private_key_agent.enabled` accepts `%env(PKA_ENABLED)%` without a cast. The value is resolved at container
+  compilation and converted with PHP's boolean validation (`true`/`false`, `1`/`0`, `on`/`off`, `yes`/`no`);
+  invalid values fail compilation. Symfony rejects cast expressions such as `%env(bool:PKA_ENABLED)%` when
+  resolved inside an extension. Rebuild the container cache after changing the variable. Tokens and the agent URL
+  remain lazy. Hosted `use_private_key_agent` flags still require literal booleans.
 - Local-key operations do not initialize the agent backend or resolve its tokens and URL.
 - Agent key-name validation reports only invalid names, without token values. Unregistered or unsupported agent
   key-transport algorithms produce `InvalidAssertionException` instead of a key-type error.
