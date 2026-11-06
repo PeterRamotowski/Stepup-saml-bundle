@@ -26,7 +26,6 @@ use SimpleSAML\SAML2\Response\Exception\PreconditionNotMetException;
 use SimpleSAML\SAML2\XML\saml\Assertion;
 use SimpleSAML\SAML2\XML\samlp\Response;
 use SimpleSAML\XML\DOMDocumentFactory;
-use SimpleSAML\XMLSecurity\Exception\SignatureVerificationFailedException;
 use SimpleSAML\XMLSecurity\Exception\UnsupportedAlgorithmException;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
@@ -162,10 +161,9 @@ class PostBinding implements HttpBinding
         $serviceProvider = $this->entityRepository->getServiceProvider($authnRequest->getServiceProvider());
         $checkedIssuer = $authnRequest->getServiceProvider();
 
-        // Note: verifyIsSignedBy throws an Exception when the signature does not match.
         try {
             $isSigned = $this->signatureVerifier->verifyIsSignedBy($receivedRequest, $serviceProvider);
-        } catch (SignatureVerificationFailedException | UnsupportedAlgorithmException $exception) {
+        } catch (UnsupportedAlgorithmException $exception) {
             throw new SignatureValidationFailedException(
                 'Validation of the signature in the AuthnRequest failed',
                 $exception

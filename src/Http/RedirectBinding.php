@@ -123,7 +123,6 @@ class RedirectBinding implements HttpBinding
 
         $serviceProvider = $this->entityRepository->getServiceProvider($authnRequest->getServiceProvider());
 
-        // Note: verifyIsSignedBy throws an Exception when the signature does not match.
         if (!$this->signatureVerifier->verifyIsSignedBy($query, $serviceProvider)) {
             throw new SignatureValidationFailedException(
                 'Validation of the signature in the AuthnRequest failed'
