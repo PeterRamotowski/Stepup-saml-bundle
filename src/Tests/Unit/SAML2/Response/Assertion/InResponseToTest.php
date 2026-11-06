@@ -57,18 +57,21 @@ class InResponseToTest extends TestCase
     {
         ContainerSingleton::setContainer(new MockContainer());
 
-        $emptySubjectConfirmationData = Assertion::fromXML(DOMDocumentFactory::fromString(
-            '<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="_a" Version="2.0"'
-            . ' IssueInstant="2026-11-04T12:00:00Z"><saml:Issuer>https://idp.example.com</saml:Issuer>'
-            . '<saml:Subject><saml:NameID>user</saml:NameID>'
-            . '<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">'
-            . '<saml:SubjectConfirmationData/></saml:SubjectConfirmation></saml:Subject></saml:Assertion>'
-        )->documentElement);
+        $assertionWithSubject = static fn (string $subject): Assertion => Assertion::fromXML(
+            DOMDocumentFactory::fromString(
+                '<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="_a" Version="2.0"'
+                . ' IssueInstant="2026-11-04T12:00:00Z"><saml:Issuer>https://idp.example.com</saml:Issuer>'
+                . '<saml:Subject><saml:NameID>user</saml:NameID>' . $subject . '</saml:Subject></saml:Assertion>'
+            )->documentElement
+        );
 
         return [
-            'No Subject Confirmation'      => [TestAssertions::create()],
+            'No Subject Confirmation'      => [$assertionWithSubject('')],
             'No Subject Confirmation Data' => [TestAssertions::create(nameId: 'user')],
-            'Empty In Reponse To'          => [$emptySubjectConfirmationData],
+            'Empty In Reponse To'          => [$assertionWithSubject(
+                '<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">'
+                . '<saml:SubjectConfirmationData/></saml:SubjectConfirmation>'
+            )],
         ];
     }
 }

@@ -184,6 +184,11 @@ class ResponseProcessor
                 count($encryptedKeys)
             ));
         }
+        if ($encryptedAssertion->getDecryptionKeys() !== []) {
+            throw new InvalidAssertionException(
+                'An EncryptedKey outside the KeyInfo of the EncryptedData (RetrievalMethod layout) is not supported'
+            );
+        }
 
         $algorithm = $encryptedKeys[0]->getEncryptionMethod()?->getAlgorithm()->getValue();
         if ($algorithm === null) {

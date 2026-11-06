@@ -219,6 +219,21 @@ class ResponseProcessorTest extends TestCase
     }
 
     #[Test]
+    public function an_encrypted_assertion_with_only_a_detached_encrypted_key_is_rejected(): void
+    {
+        $document = DOMDocumentFactory::fromString($this->encrypted($this->signedAssertion($this->assertion())));
+        $encryptedKey = $document->getElementsByTagNameNS(C::NS_XENC, 'EncryptedKey')->item(0);
+        $document->documentElement->appendChild($encryptedKey->cloneNode(true));
+        $keyInfo = $document->getElementsByTagNameNS(C::NS_XDSIG, 'KeyInfo')->item(0);
+        $keyInfo->parentNode->removeChild($keyInfo);
+
+        $this->expectException(InvalidAssertionException::class);
+        $this->expectExceptionMessage('An EncryptedKey outside the KeyInfo of the EncryptedData');
+
+        $this->process($this->response($document->saveXml($document->documentElement)));
+    }
+
+    #[Test]
     public function an_encrypted_assertion_without_an_encrypted_key_is_rejected(): void
     {
         $document = DOMDocumentFactory::fromString($this->encrypted($this->signedAssertion($this->assertion())));
