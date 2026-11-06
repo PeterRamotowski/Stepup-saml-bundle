@@ -18,6 +18,8 @@
 
 namespace Surfnet\SamlBundle\Tests\Unit\SAML2;
 
+use DateTimeImmutable;
+use DateTimeZone;
 use Mockery as m;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\Group;
@@ -97,5 +99,30 @@ class AuthnRequestFactoryTest extends TestCase
         $this->assertTrue($authnRequest->isForceAuthn());
         $authnRequest = AuthnRequestFactory::createNewRequest($sp, $idp, false);
         $this->assertFalse($authnRequest->isForceAuthn());
+    }
+
+    #[Test]
+    #[Group('saml2')]
+    public function the_issue_instant_is_written_in_utc_for_a_non_utc_clock(): void
+    {
+        $container = new MockContainer();
+        $container->setClock(new MockClock(
+            new DateTimeImmutable('2026-11-03T13:00:00', new DateTimeZone('Europe/Amsterdam'))
+        ));
+        ContainerSingleton::setContainer($container);
+
+        $sp = m::mock(ServiceProvider::class);
+        $sp->shouldReceive('getAssertionConsumerUrl')->andReturn('https://example-sp.com/acs');
+        $sp->shouldReceive('getEntityId')->andReturn('https://example-sp.com/');
+        $sp->shouldReceive('getPrivateKey')->andReturn(
+            new PrivateKey(__DIR__.'/../../../Resources/keys/development_privatekey.pem', 'key-for-test', '')
+        );
+        $sp->shouldReceive('usesPrivateKeyAgent')->andReturn(false);
+        $idp = m::mock(IdentityProvider::class);
+        $idp->shouldReceive('getSsoUrl')->andReturn('https://example-idp.com/sso');
+
+        $authnRequest = AuthnRequestFactory::createNewRequest($sp, $idp);
+
+        $this->assertStringContainsString('IssueInstant="2026-11-03T12:00:00Z"', $authnRequest->getUnsignedXML());
     }
 }

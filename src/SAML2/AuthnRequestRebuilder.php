@@ -18,6 +18,7 @@
 
 namespace Surfnet\SamlBundle\SAML2;
 
+use DateTimeZone;
 use Dom\Element;
 use Dom\XMLDocument;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
@@ -97,7 +98,9 @@ final class AuthnRequestRebuilder
 
     public static function now(): SAMLDateTimeValue
     {
-        return SAMLDateTimeValue::fromDateTime(ContainerSingleton::getInstance()->getClock()->now());
+        return SAMLDateTimeValue::fromDateTime(
+            ContainerSingleton::getInstance()->getClock()->now()->setTimezone(new DateTimeZone('UTC'))
+        );
     }
 
     public static function serialize(Element $element): string
