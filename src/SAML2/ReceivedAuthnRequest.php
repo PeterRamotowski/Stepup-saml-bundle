@@ -23,6 +23,7 @@ use SimpleSAML\XMLSecurity\Key\PublicKey;
 use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\SAML2\Extensions\ExtensionsMapperTrait;
 use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
+use Surfnet\SamlBundle\Signing\SignatureTransformGuard;
 
 final class ReceivedAuthnRequest
 {
@@ -86,6 +87,7 @@ final class ReceivedAuthnRequest
             return false;
         }
 
+        SignatureTransformGuard::assertNoForbiddenTransforms($signature->toXML());
         $verifier = SignatureAlgorithms::forVerification(
             $signature->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue(),
             $publicKey

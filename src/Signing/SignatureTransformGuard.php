@@ -19,7 +19,9 @@
 namespace Surfnet\SamlBundle\Signing;
 
 use Dom\Document;
+use Dom\Element;
 use DOMDocument;
+use DOMElement;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
 
 /**
@@ -33,9 +35,8 @@ use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
  * them, so the guard is kept: it restricts transforms to the algorithms the SAML 2.0 Core
  * specification uses.
  *
- * A SAML message can carry independently signed Response and Assertion elements, each with
- * their own `<ds:Signature>`/`<ds:Transform>` chain, so this scans the whole document rather
- * than a single signature node.
+ * Accepts a complete document or a signature element. Response and Assertion signatures must both be
+ * checked, including Assertion signatures that only become visible after decryption.
  */
 final class SignatureTransformGuard
 {
@@ -51,7 +52,7 @@ final class SignatureTransformGuard
         'http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments',
     ];
 
-    public static function assertNoForbiddenTransforms(DOMDocument|Document $document): void
+    public static function assertNoForbiddenTransforms(DOMDocument|Document|DOMElement|Element $document): void
     {
         foreach ($document->getElementsByTagNameNS('*', 'Transform') as $node) {
             if (!$node->hasAttribute('Algorithm')) {

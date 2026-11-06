@@ -103,6 +103,8 @@ Issuer as an invalid URI before these accessors run. The `SamlAttributesBadge` o
   `RedirectBinding`, which preserve the signed bytes. Empty and `"0"` RelayState values are retained.
 - `SignatureVerifiable::verify()`, `ReceivedAuthnRequestQueryString::verify()` and `ReceivedAuthnRequestPost::verify()`
   take a `SimpleSAML\XMLSecurity\Key\PublicKey`.
+- POST AuthnRequest verification tries the configured SP certificates in order, continuing after a signature
+  mismatch so that rollover certificates work. A forbidden transform or unsupported algorithm still rejects the request.
 - `PostBinding::receiveSignedAuthnRequestFrom()` returns the request as covered by the XML signature, and rejects it
   when its Destination or Issuer differ from the values checked before verification. Extensions are also reloaded
   from that verified request.
@@ -178,8 +180,11 @@ do not enable it.
 ## Removed audit ignores
 
 The `composer audit` ignores for GHSA-5cjr-mxj5-wmrx and GHSA-6929-8p9f-26jx are removed; both advisories only
-affect saml2 4.x. `SignatureTransformGuard` still rejects XPath transforms before every signature verification,
-because xml-security 3 evaluates them and SAML never needs them.
+affect saml2 4.x. `SignatureTransformGuard` rejects XPath transforms before XML-signature verification in
+`ReceivedAuthnRequest::verify()` and `ResponseProcessor` (Response and Assertion signatures, including decrypted
+Assertions). `PostBinding::processResponse()` also scans the incoming document before parsing. These checks cover
+POST AuthnRequests and direct processor callers, because xml-security 3 evaluates XPath transforms and SAML never
+needs them. Redirect signatures cover query-string bytes rather than XML transforms.
 
 # UPGRADE FROM X to 4.1.9
 

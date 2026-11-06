@@ -23,11 +23,15 @@ use SimpleSAML\SAML2\Certificate\Key;
 use SimpleSAML\SAML2\Certificate\KeyLoader;
 use SimpleSAML\SAML2\Certificate\X509;
 use SimpleSAML\XMLSecurity\Constants as C;
+use SimpleSAML\XMLSecurity\Exception\SignatureVerificationFailedException;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
 use Surfnet\SamlBundle\Http\SignatureVerifiable;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
 
+/**
+ * Coordinates certificate configuration, transport-specific requests and cryptographic verification.
+ */
 class SignatureVerifier
 {
     public function __construct(
@@ -51,8 +55,12 @@ class SignatureVerifier
         ));
 
         foreach ($x509Keys as $key) {
-            if ($key instanceof X509 && $this->isRequestSignedWith($request, $key)) {
-                return true;
+            try {
+                if ($key instanceof X509 && $this->isRequestSignedWith($request, $key)) {
+                    return true;
+                }
+            } catch (SignatureVerificationFailedException) {
+                $this->logger->debug('Signature did not match this certificate; trying the next configured certificate.');
             }
         }
 
@@ -106,11 +114,11 @@ class SignatureVerifier
     }
 
     /**
-     * @throws \Exception
+     * Verifies legacy requests only when a signature and the supported algorithm are present.
      */
     public function isSignedWith(AuthnRequest $request, X509 $publicKey): bool
     {
-        if ($request->getSignatureAlgorithm() !== C::SIG_RSA_SHA256) {
+        if (!$request->isSigned() || $request->getSignatureAlgorithm() !== C::SIG_RSA_SHA256) {
             return false;
         }
 

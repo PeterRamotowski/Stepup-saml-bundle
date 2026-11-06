@@ -32,8 +32,10 @@ use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
 use SimpleSAML\XMLSecurity\Constants as C;
 use SimpleSAML\XMLSecurity\CryptoEncoding\PEM;
 use SimpleSAML\XMLSecurity\Key\PrivateKey;
+use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
+use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
 use Surfnet\SamlBundle\Signing\SignatureVerifier;
 
 class AuthnRequestSigningTest extends TestCase
@@ -257,6 +259,36 @@ AUTHNREQUEST_NO_SUBJECT;
         $verifier = new SignatureVerifier(new KeyLoader(), new NullLogger());
 
         $this->assertTrue($verifier->isSignedWith($request, X509::createFromCertificateData($this->getPublicKey())));
+    }
+
+    public static function unsignedRequestFactories(): iterable
+    {
+        yield 'createNew' => [false];
+        yield 'createUnsigned' => [true];
+    }
+
+    #[Test]
+    #[DataProvider('unsignedRequestFactories')]
+    public function unsigned_legacy_requests_fail_verification_without_a_type_error(bool $legacy): void
+    {
+        $xml = SAML2AuthnRequest::fromXML(DOMDocumentFactory::fromString($this->authRequestNoSubject)->documentElement);
+        $request = $legacy ? AuthnRequest::createUnsigned($xml, 'raw-request', '') : AuthnRequest::createNew($xml);
+        $verifier = new SignatureVerifier(new KeyLoader(), new NullLogger());
+
+        $this->assertFalse($verifier->isSignedWith($request, X509::createFromCertificateData($this->getPublicKey())));
+    }
+
+    #[Test]
+    public function pss_verification_accepts_pss_padding_and_rejects_pkcs1_padding(): void
+    {
+        $privateKey = PrivateKey::fromFile(__DIR__ . '/../../../Resources/keys/development_privatekey.pem');
+        $publicKey = X509Certificate::fromFile(__DIR__ . '/../../../Resources/keys/development_publickey.cer')->getPublicKey();
+        openssl_sign('padding probe', $pss, $privateKey->getMaterial(), 'sha256', OPENSSL_PKCS1_PSS_PADDING);
+        openssl_sign('padding probe', $pkcs1, $privateKey->getMaterial(), 'sha256', OPENSSL_PKCS1_PADDING);
+        $verifier = SignatureAlgorithms::forVerification(C::SIG_RSA_PSS_SHA256, $publicKey);
+
+        $this->assertTrue($verifier->verify('padding probe', $pss));
+        $this->assertFalse($verifier->verify('padding probe', $pkcs1));
     }
 
     private function encodeDataToSignWithPhpsHttpBuildQuery(array $params): string

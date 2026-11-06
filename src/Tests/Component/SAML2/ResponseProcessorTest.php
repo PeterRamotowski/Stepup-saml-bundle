@@ -28,6 +28,7 @@ use SimpleSAML\SAML2\Certificate\KeyLoader;
 use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\Configuration\PrivateKey as PrivateKeyConfiguration;
+use SimpleSAML\SAML2\Exception\ProtocolViolationException;
 use SimpleSAML\SAML2\Response\Exception\InvalidResponseException;
 use SimpleSAML\SAML2\Response\Exception\InvalidSignatureException;
 use SimpleSAML\SAML2\Response\Exception\PreconditionNotMetException;
@@ -47,6 +48,7 @@ use SimpleSAML\XMLSecurity\Key\PrivateKey;
 use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
+use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
 use Surfnet\SamlBundle\PrivateKeyAgent\KeyMap;
 use Surfnet\SamlBundle\SAML2\BridgeContainer;
 use Surfnet\SamlBundle\SAML2\Response\AssertionValues;
@@ -431,6 +433,49 @@ class ResponseProcessorTest extends TestCase
         $this->assertSame('john-doe', AssertionValues::nameId($assertion));
         $this->assertSame(self::IDP_ENTITY_ID, AssertionValues::issuer($assertion));
         $this->assertSame(['role' => ['student']], AssertionValues::attributes($assertion));
+    }
+
+    public static function signatureLocations(): iterable
+    {
+        yield 'Response signature' => ['response'];
+        yield 'Assertion signature' => ['assertion'];
+        yield 'encrypted Assertion signature' => ['encrypted'];
+    }
+
+    #[Test]
+    #[DataProvider('signatureLocations')]
+    public function direct_response_processing_rejects_xpath_transforms(string $location): void
+    {
+        $xml = $location === 'response'
+            ? $this->signedResponse($this->response($this->assertion()))
+            : $this->signedAssertion($this->assertion());
+        $document = DOMDocumentFactory::fromString($xml);
+        $transform = $document->createElementNS(C::NS_XDSIG, 'ds:Transform');
+        $transform->setAttribute('Algorithm', 'http://www.w3.org/TR/1999/REC-xpath-19991116');
+        $xpath = $document->createElementNS(C::NS_XDSIG, 'ds:XPath');
+        $xpath->textContent = 'true()';
+        $transform->appendChild($xpath);
+        $document->getElementsByTagNameNS(C::NS_XDSIG, 'Transforms')->item(0)->appendChild($transform);
+        $xml = $document->saveXml($document->documentElement);
+        if ($location === 'encrypted') {
+            $xml = $this->encrypted($xml);
+        }
+
+        $this->expectException(SignatureValidationFailedException::class);
+        $this->expectExceptionMessage('forbidden XML signature Transform');
+        $this->process($location === 'response' ? $xml : $this->response($xml));
+    }
+
+    #[Test]
+    public function default_entity_format_issuers_with_surrounding_whitespace_are_rejected_during_parsing(): void
+    {
+        $xml = str_replace(
+            '>' . self::IDP_ENTITY_ID . '<',
+            ">\n " . self::IDP_ENTITY_ID . " \n<",
+            $this->assertion()
+        );
+        $this->expectException(ProtocolViolationException::class);
+        Assertion::fromXML(DOMDocumentFactory::fromString($xml)->documentElement);
     }
 
     private function useAgent(): FakePrivateKeyAgent

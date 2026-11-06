@@ -19,6 +19,7 @@
 namespace Surfnet\SamlBundle\Tests\Component\Signing;
 
 use Exception;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
@@ -45,7 +46,9 @@ use Surfnet\SamlBundle\Entity\ServiceProviderRepository;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
 use Surfnet\SamlBundle\Http\PostBinding;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestPost;
+use Surfnet\SamlBundle\SAML2\ReceivedAuthnRequest;
 use Surfnet\SamlBundle\SAML2\Response\ResponseProcessor;
+use Surfnet\SamlBundle\Signing\CertificateKeys;
 use Surfnet\SamlBundle\Signing\SignatureVerifier;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -92,9 +95,67 @@ class ReceivedAuthnRequestPostSignatureTest extends TestCase
     public function a_post_request_declaring_hmac_is_an_http_bad_request(): void
     {
         $xml = str_replace(C::SIG_RSA_SHA256, C::SIG_HMAC_SHA256, $this->signedRequest());
+        $this->expectException(SignatureValidationFailedException::class);
+        $this->receiveSignedPost($xml);
+    }
+
+    public static function verificationPaths(): iterable
+    {
+        yield 'direct verification' => [false];
+        yield 'POST binding' => [true];
+    }
+
+    #[Test]
+    #[DataProvider('verificationPaths')]
+    public function xpath_transforms_are_rejected_before_signature_verification(bool $throughBinding): void
+    {
+        $document = DOMDocumentFactory::fromString($this->signedRequest());
+        $transform = $document->createElementNS(C::NS_XDSIG, 'ds:Transform');
+        $transform->setAttribute('Algorithm', 'http://www.w3.org/TR/1999/REC-xpath-19991116');
+        $xpath = $document->createElementNS(C::NS_XDSIG, 'ds:XPath');
+        $xpath->textContent = 'true()';
+        $transform->appendChild($xpath);
+        $document->getElementsByTagNameNS(C::NS_XDSIG, 'Transforms')->item(0)->appendChild($transform);
+        $xml = $document->saveXml($document->documentElement);
+
+        $this->expectException(SignatureValidationFailedException::class);
+        $this->expectExceptionMessage('forbidden XML signature Transform');
+        if ($throughBinding) {
+            $this->receiveSignedPost($xml);
+        } else {
+            $received = ReceivedAuthnRequestPost::parse(['SAMLRequest' => base64_encode($xml)]);
+            $received->verify($this->publicKey());
+        }
+    }
+
+    #[Test]
+    public function a_post_request_signed_with_the_second_rollover_certificate_is_accepted(): void
+    {
+        $request = $this->receiveSignedPost($this->signedRequest(), [
+            __DIR__ . '/../Metadata/keys/entity.crt',
+            self::KEYS . '/development_publickey.cer',
+        ]);
+        $this->assertSame('https://sp.example.com/metadata', $request->getServiceProvider());
+    }
+
+    #[Test]
+    public function a_post_request_without_a_matching_rollover_certificate_is_rejected(): void
+    {
+        $this->expectException(SignatureValidationFailedException::class);
+        $this->receiveSignedPost($this->signedRequest(), [__DIR__ . '/../Metadata/keys/entity.crt']);
+    }
+
+    /**
+     * @param list<string> $certificateFiles
+     */
+    private function receiveSignedPost(string $xml, array $certificateFiles = []): ReceivedAuthnRequest
+    {
+        $certificates = $certificateFiles ?: [self::KEYS . '/development_publickey.cer'];
         $provider = new ServiceProvider([
             'entityId' => 'https://sp.example.com/metadata',
-            'certificateFile' => self::KEYS . '/development_publickey.cer',
+            'keys' => array_map(static fn (string $file): array => [
+                'X509Certificate' => CertificateKeys::certificateDataFromFile($file),
+            ], $certificates),
         ]);
         $repository = $this->createMock(ServiceProviderRepository::class);
         $repository->method('hasServiceProvider')->willReturn(true);
@@ -107,8 +168,7 @@ class ReceivedAuthnRequestPostSignatureTest extends TestCase
         );
         $request = Request::create('https://idp.example.com/sso', 'POST', ['SAMLRequest' => base64_encode($xml)]);
 
-        $this->expectException(SignatureValidationFailedException::class);
-        $binding->receiveSignedAuthnRequestFrom($request);
+        return $binding->receiveSignedAuthnRequestFrom($request);
     }
 
     private function signedRequest(bool $withExtensions = false): string

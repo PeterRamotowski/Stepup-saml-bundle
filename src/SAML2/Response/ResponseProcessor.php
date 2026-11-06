@@ -55,6 +55,7 @@ use Surfnet\SamlBundle\PrivateKeyAgent\KeyMap;
 use Surfnet\SamlBundle\SAML2\Response\Validation\SessionNotOnOrAfter;
 use Surfnet\SamlBundle\Signing\CertificateKeys;
 use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
+use Surfnet\SamlBundle\Signing\SignatureTransformGuard;
 use Throwable;
 
 /**
@@ -130,7 +131,11 @@ class ResponseProcessor
         IdentityProvider $identityProvider,
         string $expectedClass,
     ): SignedElementInterface {
-        $algorithm = $element->getSignature()?->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue();
+        $signature = $element->getSignature();
+        if ($signature !== null) {
+            SignatureTransformGuard::assertNoForbiddenTransforms($signature->toXML());
+        }
+        $algorithm = $signature?->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue();
         $lastException = null;
 
         foreach (CertificateKeys::extract($this->keyLoader, $identityProvider) as $index => $key) {

@@ -1,6 +1,8 @@
 # Unreleased (8.0.0)
 - Support uncast environment values for agent enablement through Symfony's extension compilation path
+- Guard POST AuthnRequest and direct ResponseProcessor XML signatures against forbidden transforms
 - Map AuthnRequest query, base64 and inflate failures to HTTP 400 in both bindings
+- Try subsequent POST AuthnRequest certificates after a signature mismatch and return false for unsigned legacy requests
 - Resolve environment-backed agent enablement before registering services; keep token and URL resolution lazy
 - Reject malformed signatures and unsupported algorithms in the deprecated AuthnRequest path; preserve empty RelayState
 - Update example controllers for attribute routes, the remote IdP and HTTP errors; remove raw SAML and attribute logging
