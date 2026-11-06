@@ -82,8 +82,10 @@ class SamlAuthenticator extends AbstractAuthenticator implements InteractiveAuth
             $authnRequest->setAuthenticationContextClassRef($this->authenticationContextClassRef);
         }
 
+        $response = $this->redirectBinding->createResponseFor($authnRequest);
         $this->samlAuthenticationStateHandler->setRequestId($authnRequest->getRequestId());
-        return $this->redirectBinding->createResponseFor($authnRequest);
+
+        return $response;
     }
 
     public function supports(Request $request): ?bool

@@ -24,6 +24,7 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
+use RuntimeException;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\Compat\MockContainer;
 use SimpleSAML\SAML2\Configuration\PrivateKey;
@@ -123,6 +124,22 @@ class SamlAuthenticatorTest extends TestCase
         $response = $this->authenticator->start($request);
 
         $this->assertInstanceOf(RedirectResponse::class, $response);
+    }
+
+    public function test_start_keeps_no_request_id_when_signing_fails(): void
+    {
+        $privateKey = new PrivateKey(__DIR__ . '/../../../Resources/keys/development_privatekey.pem', PrivateKey::NAME_DEFAULT);
+        $this->sp->shouldReceive('getAssertionConsumerUrl')->andReturn('https://sp.example.com/acs');
+        $this->sp->shouldReceive('getEntityId')->andReturn('https://sp-entity-id');
+        $this->sp->shouldReceive('getPrivateKey')->andReturn($privateKey);
+        $this->sp->shouldReceive('usesPrivateKeyAgent')->andReturn(false);
+        $this->idp->shouldReceive('getSsoUrl')->andReturn('https://idp.example.com/sso');
+
+        $this->redirectBinding->shouldReceive('createResponseFor')->andThrow(new RuntimeException('agent unavailable'));
+        $this->samlAuthenticationStateHandler->shouldNotReceive('setRequestId');
+
+        $this->expectException(RuntimeException::class);
+        $this->authenticator->start(Mockery::mock(Request::class));
     }
 
     #[DataProvider('provideSupportsParameters')]

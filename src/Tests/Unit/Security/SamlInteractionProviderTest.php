@@ -20,6 +20,7 @@ namespace Surfnet\SamlBundle\Security\Authentication;
 
 use Mockery;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\Compat\MockContainer;
 use SimpleSAML\SAML2\Configuration\PrivateKey;
@@ -98,6 +99,27 @@ class SamlInteractionProviderTest extends TestCase
         $response = $this->samlInteractionProvider->initiateSamlRequest();
 
         $this->assertEquals($response, $redirectResponse);
+    }
+
+    public function test_initiate_saml_request_keeps_no_request_id_when_signing_fails(): void
+    {
+        $this->samlAuthenticationStateHandler = FakeAuthencationStateHandler::createWithoutRequestId();
+        $this->createProvider();
+
+        $privateKey = new PrivateKey(__DIR__ . '/../../../Resources/keys/development_privatekey.pem', PrivateKey::NAME_DEFAULT);
+        $this->serviceProvider->shouldReceive('getEntityId')->andReturn('https://sp');
+        $this->serviceProvider->shouldReceive('getAssertionConsumerUrl')->andReturn('https://sp/acs');
+        $this->serviceProvider->shouldReceive('getPrivateKey')->andReturn($privateKey);
+        $this->serviceProvider->shouldReceive('usesPrivateKeyAgent')->andReturn(false);
+        $this->identityProvider->shouldReceive('getSsoUrl')->andReturn('https://idp.example.com/sso');
+        $this->redirectBinding->shouldReceive('createResponseFor')->andThrow(new RuntimeException('agent unavailable'));
+
+        try {
+            $this->samlInteractionProvider->initiateSamlRequest();
+            $this->fail('A signing failure must propagate.');
+        } catch (RuntimeException) {
+            $this->assertFalse($this->samlInteractionProvider->isSamlAuthenticationInitiated());
+        }
     }
 
     public function test_process_saml_response(): void

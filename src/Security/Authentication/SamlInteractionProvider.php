@@ -52,9 +52,10 @@ class SamlInteractionProvider
             $this->identityProvider
         );
 
+        $response = $this->redirectBinding->createResponseFor($authnRequest);
         $this->samlAuthenticationStateHandler->setRequestId($authnRequest->getRequestId());
 
-        return $this->redirectBinding->createResponseFor($authnRequest);
+        return $response;
     }
 
     public function processSamlResponse(Request $request): Assertion
