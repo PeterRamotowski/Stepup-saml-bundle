@@ -26,6 +26,7 @@ use Surfnet\SamlBundle\DependencyInjection\SurfnetSamlExtension;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Compiler\MergeExtensionConfigurationPass;
+use Symfony\Component\DependencyInjection\Compiler\ValidateEnvPlaceholdersPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Exception\RuntimeException as ContainerRuntimeException;
 
@@ -185,6 +186,7 @@ class SurfnetSamlExtensionPrivateKeyAgentTest extends TestCase
             $container->registerExtension(new SurfnetSamlExtension());
             $container->loadFromExtension('surfnet_saml', $this->hosted() + ['private_key_agent' => $agent]);
             (new MergeExtensionConfigurationPass())->process($container);
+            (new ValidateEnvPlaceholdersPass())->process($container);
 
             return $container;
         } finally {

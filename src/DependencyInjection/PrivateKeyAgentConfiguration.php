@@ -84,16 +84,33 @@ final class PrivateKeyAgentConfiguration implements ConfigurationInterface
 
         $treeBuilder->getRootNode()
             ->info('Optional Private Key Agent for RSA signing and key-transport decryption')
-            ->canBeEnabled()
+            // Like canBeEnabled(), but Symfony's env placeholder validation passes an uncast %env()% as a string.
+            ->addDefaultsIfNotSet()
+            ->treatFalseLike(['enabled' => false])
+            ->treatTrueLike(['enabled' => true])
+            ->treatNullLike(['enabled' => true])
+            ->beforeNormalization()
+                ->ifArray()
+                ->then(static function (array $config): array {
+                    $config['enabled'] ??= true;
+
+                    return $config;
+                })
+            ->end()
             ->validate()
-                ->ifTrue(static fn (array $config): bool => $config['enabled'] && empty($config['base_url']))
+                ->ifTrue(static fn (array $config): bool => !is_bool($config['enabled']) && !is_string($config['enabled']))
+                ->thenInvalid('surfnet_saml.private_key_agent.enabled must be a boolean or an environment variable')
+            ->end()
+            ->validate()
+                ->ifTrue(static fn (array $config): bool => $config['enabled'] === true && empty($config['base_url']))
                 ->thenInvalid('surfnet_saml.private_key_agent.base_url must be set when the agent is enabled')
             ->end()
             ->validate()
-                ->ifTrue(static fn (array $config): bool => $config['enabled'] && $config['keys'] === [])
+                ->ifTrue(static fn (array $config): bool => $config['enabled'] === true && $config['keys'] === [])
                 ->thenInvalid('surfnet_saml.private_key_agent.keys must contain at least one key when the agent is enabled')
             ->end()
             ->children()
+                ->scalarNode('enabled')->defaultFalse()->end()
                 ->scalarNode('base_url')
                     ->defaultNull()
                     ->info('Base URL of the agent; must use https://, unless allow_insecure_http is set for a loopback host')
