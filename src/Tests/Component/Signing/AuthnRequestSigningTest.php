@@ -25,6 +25,7 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use SimpleSAML\SAML2\Certificate\KeyLoader;
 use SimpleSAML\SAML2\Certificate\X509;
+use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use SimpleSAML\XML\DOMDocumentFactory;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
@@ -35,8 +36,10 @@ use SimpleSAML\XMLSecurity\Key\PrivateKey;
 use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
+use Surfnet\SamlBundle\SAML2\BridgeContainer;
 use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
 use Surfnet\SamlBundle\Signing\SignatureVerifier;
+use Symfony\Component\Clock\MockClock;
 
 class AuthnRequestSigningTest extends TestCase
 {
@@ -54,6 +57,11 @@ class AuthnRequestSigningTest extends TestCase
 AUTHNREQUEST_NO_SUBJECT;
 
     private ?string $publicKey = null;
+
+    protected function setUp(): void
+    {
+        ContainerSingleton::setContainer(new BridgeContainer(new NullLogger(), new MockClock()));
+    }
 
     #[Test]
     #[Group('Signing')]

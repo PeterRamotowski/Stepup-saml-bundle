@@ -18,7 +18,6 @@
 
 namespace Surfnet\SamlBundle\Tests\Component\Signing;
 
-use Exception;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -38,6 +37,7 @@ use SimpleSAML\XML\DOMDocumentFactory;
 use SimpleSAML\XMLSchema\Type\IDValue;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
 use SimpleSAML\XMLSecurity\Constants as C;
+use SimpleSAML\XMLSecurity\Exception\SignatureVerificationFailedException;
 use SimpleSAML\XMLSecurity\Key\PrivateKey;
 use SimpleSAML\XMLSecurity\Key\PublicKey;
 use SimpleSAML\XMLSecurity\Key\X509Certificate;
@@ -76,7 +76,7 @@ class ReceivedAuthnRequestPostSignatureTest extends TestCase
         $tampered = str_replace('https://sp.example.com/acs', 'https://evil.example.com/acs', $this->signedRequest());
         $received = ReceivedAuthnRequestPost::parse(['SAMLRequest' => base64_encode($tampered)]);
 
-        $this->expectException(Exception::class);
+        $this->expectException(SignatureVerificationFailedException::class);
         $received->verify($this->publicKey());
     }
 

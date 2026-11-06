@@ -45,10 +45,10 @@ use Surfnet\SamlBundle\PrivateKeyAgent\ConfiguredTokenProvider;
 class AlgorithmRegistrarTest extends TestCase
 {
     private const KEYS = __DIR__ . '/../../../Resources/keys';
-/**
+
+    /**
      * @var ArrayObject<int, RequestInterface>
      */
-    
     private ArrayObject $agentRequests;
 
     protected function setUp(): void

@@ -232,6 +232,78 @@ class ResponseProcessorTest extends TestCase
     }
 
     #[Test]
+    public function a_signed_response_altered_after_signing_is_rejected(): void
+    {
+        $tampered = str_replace('john-doe', 'jane-doe', $this->signedResponse($this->response($this->assertion())));
+
+        $this->expectException(InvalidSignatureException::class);
+
+        $this->process($tampered);
+    }
+
+    #[Test]
+    public function an_attacker_assertion_carrying_the_signature_of_a_wrapped_signed_assertion_is_rejected(): void
+    {
+        $signed = $this->signedAssertion($this->assertion());
+
+        $this->expectException(InvalidSignatureException::class);
+
+        $this->process($this->response($this->wrapInAttackerAssertion($signed, keepSignature: true)));
+    }
+
+    #[Test]
+    public function an_unsigned_attacker_assertion_wrapping_a_signed_assertion_is_rejected(): void
+    {
+        $signed = $this->signedAssertion($this->assertion());
+
+        $this->expectException(UnsignedResponseException::class);
+
+        $this->process($this->response($this->wrapInAttackerAssertion($signed, keepSignature: false)));
+    }
+
+    #[Test]
+    public function a_response_for_another_destination_does_not_meet_the_preconditions(): void
+    {
+        $this->expectException(PreconditionNotMetException::class);
+
+        $this->process($this->response(
+            $this->signedAssertion($this->assertion()),
+            destination: 'https://other.example.com/acs'
+        ));
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function conditionWindowsOutsideTheCurrentTime(): iterable
+    {
+        yield 'not yet valid' => ['2026-11-04T12:30:00Z', '2026-11-04T12:45:00Z'];
+        yield 'expired' => ['2026-11-04T11:00:00Z', '2026-11-04T11:30:00Z'];
+    }
+
+    #[Test]
+    #[DataProvider('conditionWindowsOutsideTheCurrentTime')]
+    public function an_assertion_outside_its_conditions_window_is_rejected(string $notBefore, string $notOnOrAfter): void
+    {
+        $this->expectException(InvalidAssertionException::class);
+
+        $this->process($this->response($this->signedAssertion($this->assertion(
+            conditionsNotBefore: $notBefore,
+            conditionsNotOnOrAfter: $notOnOrAfter,
+        ))));
+    }
+
+    #[Test]
+    public function an_assertion_with_an_expired_subject_confirmation_is_rejected(): void
+    {
+        $this->expectException(InvalidSubjectConfirmationException::class);
+
+        $this->process($this->response($this->signedAssertion($this->assertion(
+            confirmationNotOnOrAfter: '2026-11-04T11:30:00Z',
+        ))));
+    }
+
+    #[Test]
     public function an_assertion_with_an_expired_session_is_rejected(): void
     {
         $this->expectException(InvalidAssertionException::class);
@@ -520,29 +592,35 @@ class ResponseProcessorTest extends TestCase
         string $audience = self::SP_ENTITY_ID,
         string $recipient = self::ACS,
         string $inResponseTo = self::REQUEST_ID,
+        string $conditionsNotBefore = '2026-11-04T11:55:00Z',
+        string $conditionsNotOnOrAfter = '2026-11-04T12:05:00Z',
+        string $confirmationNotOnOrAfter = '2026-11-04T12:05:00Z',
     ): string {
         return sprintf(
             '<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="_%s" Version="2.0"'
             . ' IssueInstant="2026-11-04T12:00:00Z"><saml:Issuer>%s</saml:Issuer>'
             . '<saml:Subject><saml:NameID>john-doe</saml:NameID>'
             . '<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">'
-            . '<saml:SubjectConfirmationData NotOnOrAfter="2026-11-04T12:05:00Z" Recipient="%s" InResponseTo="%s"/>'
+            . '<saml:SubjectConfirmationData NotOnOrAfter="%s" Recipient="%s" InResponseTo="%s"/>'
             . '</saml:SubjectConfirmation></saml:Subject>'
-            . '<saml:Conditions NotBefore="2026-11-04T11:55:00Z" NotOnOrAfter="2026-11-04T12:05:00Z">'
+            . '<saml:Conditions NotBefore="%s" NotOnOrAfter="%s">'
             . '<saml:AudienceRestriction><saml:Audience>%s</saml:Audience></saml:AudienceRestriction></saml:Conditions>'
             . '<saml:AuthnStatement AuthnInstant="2026-11-04T12:00:00Z" SessionNotOnOrAfter="%s"><saml:AuthnContext>'
             . '<saml:AuthnContextClassRef>urn:oasis:names:tc:SAML:2.0:ac:classes:Password</saml:AuthnContextClassRef>'
             . '</saml:AuthnContext></saml:AuthnStatement></saml:Assertion>',
             bin2hex(random_bytes(16)),
             self::IDP_ENTITY_ID,
+            $confirmationNotOnOrAfter,
             $recipient,
             $inResponseTo,
+            $conditionsNotBefore,
+            $conditionsNotOnOrAfter,
             $audience,
             $sessionNotOnOrAfter
         );
     }
 
-    private function response(string $assertions): string
+    private function response(string $assertions, string $destination = self::ACS): string
     {
         return sprintf(
             '<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"'
@@ -551,11 +629,36 @@ class ResponseProcessorTest extends TestCase
             . '<saml:Issuer>%s</saml:Issuer><samlp:Status>'
             . '<samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/></samlp:Status>%s</samlp:Response>',
             bin2hex(random_bytes(16)),
-            self::ACS,
+            $destination,
             self::REQUEST_ID,
             self::IDP_ENTITY_ID,
             $assertions
         );
+    }
+
+    /**
+     * Signature wrapping: an attacker copy of the signed assertion, with another NameID, wraps the original in Advice.
+     */
+    private function wrapInAttackerAssertion(string $signedAssertionXml, bool $keepSignature): string
+    {
+        $document = DOMDocumentFactory::fromString(str_replace('john-doe', 'attacker', $signedAssertionXml));
+        $attacker = $document->documentElement;
+        if (!$keepSignature) {
+            $signature = $document->getElementsByTagNameNS(C::NS_XDSIG, 'Signature')->item(0);
+            $signature->parentNode->removeChild($signature);
+        }
+
+        $advice = $document->createElementNS('urn:oasis:names:tc:SAML:2.0:assertion', 'saml:Advice');
+        $advice->appendChild($document->importNode(
+            DOMDocumentFactory::fromString($signedAssertionXml)->documentElement,
+            true
+        ));
+        $attacker->insertBefore(
+            $advice,
+            $document->getElementsByTagNameNS('urn:oasis:names:tc:SAML:2.0:assertion', 'AuthnStatement')->item(0)
+        );
+
+        return $document->saveXml($attacker);
     }
 
     private function signedAssertion(string $assertionXml, string $algorithm = C::SIG_RSA_SHA256): string
