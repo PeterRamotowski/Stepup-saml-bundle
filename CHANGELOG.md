@@ -1,18 +1,16 @@
 # Unreleased (8.0.0)
-- Support uncast environment values for agent enablement through Symfony's extension compilation path
-- Guard POST AuthnRequest and direct ResponseProcessor XML signatures against forbidden transforms
-- Map AuthnRequest query, base64 and inflate failures to HTTP 400 in both bindings
-- Try subsequent POST AuthnRequest certificates after a signature mismatch and return false for unsigned legacy requests
-- Clarify conditional InResponseTo checks and handle agent signing failures in the SSO-init example
-- Resolve environment-backed agent enablement before registering services; keep token and URL resolution lazy
-- Reject malformed signatures and unsupported algorithms in the deprecated AuthnRequest path; preserve empty RelayState
-- Update example controllers for attribute routes, the remote IdP and HTTP errors; remove raw SAML and attribute logging
-- Keep bearer tokens out of agent key-name validation errors and require RSA-SHA256 for agent signing identities
-- Reject non-RSA XML signature methods and handle unsupported agent key transport without key-type errors
-- Return HTTP 400 for malformed, schema-invalid and protocol-invalid AuthnRequests over POST and Redirect
-- Restore assertion text trimming and preserve IDPList and SubjectConfirmations when updating AuthnRequests
-- Reload AuthnRequest extensions after signature verification and initialize agent backends only for agent keys
-- Make console event subscription conditional on Symfony Console being installed
+- `private_key_agent.enabled` accepts uncast `%env()%` values, resolved at container compilation; agent tokens and
+  URL stay lazy
+- Guard POST AuthnRequest and `ResponseProcessor` XML signatures against forbidden transforms
+- Return HTTP 400 for AuthnRequests over POST and Redirect with query, base64 or inflate errors, malformed XML,
+  schema violations or protocol violations
+- Try every configured certificate when verifying POST AuthnRequest signatures, so rollover certificates work
+- Reject malformed signatures and unsupported algorithms in the deprecated AuthnRequest path, where unsigned requests
+  now verify as false; preserve empty RelayState
+- Update example controllers for attribute routes, the remote IdP, HTTP errors, conditional InResponseTo checks and
+  agent signing failures; remove raw SAML and attribute logging
+- Require RSA-SHA256 for agent signing identities; bearer tokens never appear in validation errors
+- Reject non-RSA XML signature methods
 - Migrate to `simplesamlphp/saml2` 7 (`^7.0.0-rc4`) and `simplesamlphp/xml-security` 3.1; remove `robrichards/xmlseclibs`
 - Require PHP 8.5; CI matrix is PHP 8.5 with Symfony 6.4/7.4
 - Add optional OpenConext Private Key Agent support (`surfnet_saml.private_key_agent`, `use_private_key_agent`) for
@@ -21,8 +19,9 @@
   algorithm blacklist, continues with the verified element and decrypts assertions with local or agent keys
 - Add `SAML2\Response\AssertionValues` for the values of the removed flat saml2 assertion accessors
 - Add `Signing\Signers` to select the signer of a hosted entity
-- Fix the saml2 container's algorithm blacklist, whose nested default never matched (RSA-SHA1 and RSA v1.5 were accepted)
-- Initialise the saml2 container for console commands too
+- Fix the saml2 container's algorithm blacklist, whose nested default never matched. RSA-SHA1, RSA-PSS-SHA1,
+  HMAC-SHA1, RSA v1.5 key transport and 3DES content encryption are now rejected
+- Initialise the saml2 container for console commands too, when Symfony Console is installed
 - `PostBinding::receiveSignedAuthnRequestFrom()` returns the signed request instead of a second, unverified parse
 - `GsspUserAttributesChunk::getAttributeValue()` no longer builds an XPath query from the attribute name
 - `ci/qa/phplint` lints again; the PHPUnit runner no longer needs a host application

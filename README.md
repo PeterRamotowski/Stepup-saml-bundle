@@ -159,7 +159,8 @@ surfnet_saml:
   xml-security 3.1.0, which then asks the agent for SHA-256 instead of the SHA-1 default. Ask IdPs to use
   `xmlenc#rsa-oaep-mgf1p` or explicit OAEP parameters.
 - The bundle checks the configuration when the container is compiled and reads all certificates when the kernel
-  boots, so missing mappings fail early.
+  boots, so missing `sign` mappings fail early. A service provider that uses the agent and receives encrypted
+  assertions needs at least one key with `decrypt`; without one, encrypted assertions are rejected at runtime.
 
 ## Example Usage
 

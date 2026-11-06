@@ -69,8 +69,10 @@ Issuer as an invalid URI before these accessors run. The `SamlAttributesBadge` o
 - The order is: status and destination, Response signature, decryption, Assertion signature, assertion and subject
   confirmation validation. Either the Response or the Assertion must be signed by the remote IdP
   (`UnsignedResponseException` otherwise). Decryption never makes an assertion trusted.
-- Signatures are verified with the algorithm blacklist of the bundle's saml2 container (RSA-SHA1 and RSA v1.5
-  key transport are rejected).
+- Signatures are verified and assertions decrypted with the algorithm blacklist of the bundle's saml2 container:
+  RSA-SHA1, RSA-PSS-SHA1, HMAC-SHA1, RSA v1.5 key transport and 3DES (`tripledes-cbc`) content encryption are
+  rejected. To accept one of them, for example for a legacy IdP, pass your own list to
+  `BridgeContainer::setBlacklistedAlgorithms()`.
 - A Response must carry exactly one assertion. An encrypted assertion must carry exactly one `EncryptedKey`.
   Encrypted NameIDs and shared-key (symmetric) decryption are not supported.
 - When both are present, the subject confirmation InResponseTo must match the Response's InResponseTo. As before,
@@ -109,6 +111,10 @@ Issuer as an invalid URI before these accessors run. The `SamlAttributesBadge` o
   when its Destination or Issuer differ from the values checked before verification. Extensions are also reloaded
   from that verified request.
 - `setSubject()` preserves SubjectConfirmations and `setScoping()` preserves the IDPList.
+- `ReceivedAuthnRequest::from()` and `ReceivedAuthnRequest::fromHttpRedirectBinding()` throw
+  `Surfnet\SamlBundle\Exception\InvalidAuthnRequestException` (a `RuntimeException`) for empty input, malformed XML,
+  schema violations and non-AuthnRequest messages, instead of `InvalidArgumentException`. SAML protocol violations
+  still throw saml2's `ProtocolViolationException`.
 - Malformed XML, schema violations and unexpected message types produce `BadRequestHttpException` (HTTP 400)
   for both POST and Redirect AuthnRequests. Protocol violations also produce HTTP 400 in both bindings.
 - XML signature verification accepts RSA signature methods only; unsupported methods such as HMAC are rejected
@@ -142,6 +148,9 @@ do not enable it.
 - An identity with `use_private_key_agent: true` must not configure `private_key`, and its `public_key` must point
   at the certificate of an agent key with the `sign` operation. The bundle checks this when the container is
   compiled and when the kernel boots, so the certificate files must be readable at boot.
+- A hosted service provider with `use_private_key_agent: true` that receives encrypted assertions needs at least one
+  agent key with the `decrypt` operation. This is not checked at boot: without one, encrypted assertions are
+  rejected at runtime with `InvalidAssertionException`.
 - `private_key_agent.algorithms.signature` must include RSA-SHA256 when a hosted identity signs through the agent;
   the container rejects configurations that omit it.
 - `private_key_agent.enabled` accepts `%env(PKA_ENABLED)%` without a cast. The value is resolved at container
