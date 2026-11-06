@@ -16,12 +16,14 @@ namespace YourApp\Controller\Saml;
 
 use YourApp\Saml\AcsContextInterface;
 use Psr\Log\LoggerInterface;
+use SimpleSAML\XMLSecurity\Exception\PrivateKeyAgentExceptionInterface;
 use Surfnet\SamlBundle\Entity\HostedEntities;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\SAML2\AuthnRequestFactory;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
 use Symfony\Component\Routing\Attribute\Route;
 
 class AcsInitController
@@ -47,7 +49,14 @@ class AcsInitController
             )
         );
 
-        // Store the request so we can validate the response on acs respond.
+        try {
+            $query = $request->buildRequestQuery();
+        } catch (PrivateKeyAgentExceptionInterface $exception) {
+            $logger->error('Unable to sign the SAML authentication request', ['exception_class' => $exception::class]);
+            throw new ServiceUnavailableHttpException(null, 'Unable to start SAML authentication', $exception);
+        }
+
+        // Store the request only after signing succeeds, so the ACS can correlate its response.
         $context->setAuthnRequest($request);
 
         // That's it, we're good to go!
@@ -55,7 +64,7 @@ class AcsInitController
             sprintf(
                 '%s?%s',
                 $idp->getSsoUrl(),
-                $request->buildRequestQuery()
+                $query
             )
         );
     }
@@ -145,17 +154,18 @@ class AcsRespondController
 ```
 
 Avoid logging raw SAML messages or user attributes in application logs. The SAML
-bundle checks that the assertion answers the Response's InResponseTo, but not
-that it answers the request your application sent, so that check is included
-in this example.
+bundle checks the assertion's confirmation InResponseTo against the Response's InResponseTo when both values
+are present. It does not compare the assertion with the request your application sent, so the example checks that
+correlation explicitly and rejects a missing confirmation InResponseTo.
 
 `PostBinding::processResponse()` accepts a Response only when the Response or
 the Assertion is signed by the IdP, and returns the single assertion it carries,
 decrypted when it was encrypted. When the hosted SP uses the Private Key Agent
-(see the README), decryption and the AuthnRequest signature go through the agent
-and agent failures surface as
-`SimpleSAML\XMLSecurity\Exception\PrivateKeyAgentExceptionInterface`
-exceptions; the generic `catch (Exception $e)` above handles them too.
+(see the README), decryption and the AuthnRequest signature go through the agent. Agent failures implement
+`SimpleSAML\XMLSecurity\Exception\PrivateKeyAgentExceptionInterface`. The ACS controller's generic
+`catch (Exception $e)` handles failures while processing the response, including decryption. Signing happens when
+SSO starts: the init controller catches agent failures around `buildRequestQuery()` and returns HTTP 503 without
+storing a pending request.
 
 ## SAML Authentications
 As of version 5 of this bundle, a Symfony Security Authentication SamlAuthenticator was added to the project. 
