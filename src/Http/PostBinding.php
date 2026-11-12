@@ -175,7 +175,8 @@ class PostBinding implements HttpBinding
             );
         }
 
-        // Verification continues with the signed content; it must match what was checked above.
+        // Verification produces a separate request; only return that signed content.
+        $authnRequest = $receivedRequest->getAuthnRequest();
         $this->assertSignedContentWasChecked($authnRequest, $destination, $checkedIssuer);
 
         return $authnRequest;

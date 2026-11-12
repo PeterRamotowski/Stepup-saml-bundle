@@ -78,13 +78,25 @@ final class ReceivedAuthnRequest
     }
 
     /**
+     * Checks the signature without changing this request. Use verifiedWith() to consume the signed content.
+     *
      * @throws \Exception when the signature is invalid
      */
     public function verify(PublicKey $publicKey): bool
     {
+        return $this->verifiedWith($publicKey) !== null;
+    }
+
+    /**
+     * Returns a separate request built from the signed content, or null when no signature is present.
+     *
+     * @throws \Exception when the signature is invalid
+     */
+    public function verifiedWith(PublicKey $publicKey): ?self
+    {
         $signature = $this->request->getSignature();
         if ($signature === null) {
-            return false;
+            return null;
         }
 
         SignatureTransformGuard::assertNoForbiddenTransforms($signature->toXML());
@@ -98,9 +110,6 @@ final class ReceivedAuthnRequest
         if (!$verified instanceof SAML2AuthnRequest) {
             throw new RuntimeException('The verified message is not an AuthnRequest');
         }
-        $this->request = $verified;
-        $this->loadExtensionsFromSaml2AuthNRequest();
-
-        return true;
+        return new self($verified);
     }
 }

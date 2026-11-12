@@ -265,12 +265,6 @@ parameters:
 			path: ../../src/Http/PostBinding.php
 
 		-
-			message: '#^Cannot call method verify\(\) on Surfnet\\SamlBundle\\SAML2\\ReceivedAuthnRequest\|null\.$#'
-			identifier: method.nonObject
-			count: 1
-			path: ../../src/Http/ReceivedAuthnRequestPost.php
-
-		-
 			message: '#^Method Surfnet\\SamlBundle\\Http\\ReceivedAuthnRequestPost\:\:parse\(\) has parameter \$parameters with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1

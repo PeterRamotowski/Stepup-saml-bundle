@@ -84,11 +84,39 @@ class ReceivedAuthnRequestPostSignatureTest extends TestCase
     public function extensions_are_reloaded_from_the_verified_request(): void
     {
         $received = ReceivedAuthnRequestPost::parse(['SAMLRequest' => base64_encode($this->signedRequest(true))]);
-        $extensions = $received->getAuthnRequest()->getExtensions();
-        $extensions->getChunks()['Custom']->getValue()->textContent = 'unverified cached value';
+        $unverified = $received->getAuthnRequest();
+        $unverified->getExtensions()->getChunks()['Custom']->getValue()->textContent = 'unverified cached value';
 
         $this->assertTrue($received->verify($this->publicKey()));
+        $this->assertNotSame($unverified, $received->getAuthnRequest());
         $this->assertSame('signed value', $received->getAuthnRequest()->getExtensions()->getChunks()['Custom']->getValue()->textContent);
+        $this->assertSame('unverified cached value', $unverified->getExtensions()->getChunks()['Custom']->getValue()->textContent);
+    }
+
+    #[Test]
+    public function verified_with_returns_a_separate_copy_and_verify_leaves_the_request_unchanged(): void
+    {
+        $request = ReceivedAuthnRequest::from($this->signedRequest(true));
+        $request->getExtensions()->getChunks()['Custom']->getValue()->textContent = 'unverified cached value';
+
+        $verified = $request->verifiedWith($this->publicKey());
+
+        $this->assertInstanceOf(ReceivedAuthnRequest::class, $verified);
+        $this->assertNotSame($request, $verified);
+        $this->assertSame('signed value', $verified->getExtensions()->getChunks()['Custom']->getValue()->textContent);
+        $this->assertTrue($request->verify($this->publicKey()));
+        $this->assertSame('unverified cached value', $request->getExtensions()->getChunks()['Custom']->getValue()->textContent);
+    }
+
+    #[Test]
+    public function an_unsigned_request_has_no_verified_copy(): void
+    {
+        $request = ReceivedAuthnRequest::from(
+            (string) file_get_contents(__DIR__ . '/../../Unit/SAML2/Resources/valid-unsigned.xml')
+        );
+
+        $this->assertNull($request->verifiedWith($this->publicKey()));
+        $this->assertFalse($request->verify($this->publicKey()));
     }
 
     #[Test]

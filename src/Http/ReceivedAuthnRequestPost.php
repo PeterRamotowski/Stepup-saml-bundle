@@ -33,6 +33,8 @@ final class ReceivedAuthnRequestPost implements SignatureVerifiable
 
     private ?ReceivedAuthnRequest $receivedRequest = null;
 
+    private ?ReceivedAuthnRequest $verifiedRequest = null;
+
     private function __construct(private readonly string $samlRequest)
     {
     }
@@ -84,7 +86,14 @@ final class ReceivedAuthnRequestPost implements SignatureVerifiable
      */
     public function verify(PublicKey $key): bool
     {
-        return $this->receivedRequest->verify($key);
+        $verified = $this->receivedRequest?->verifiedWith($key);
+        if ($verified === null) {
+            return false;
+        }
+
+        $this->verifiedRequest = $verified;
+
+        return true;
     }
 
     /**
@@ -92,6 +101,7 @@ final class ReceivedAuthnRequestPost implements SignatureVerifiable
      */
     public function getAuthnRequest(): ReceivedAuthnRequest
     {
-        return $this->receivedRequest ?? throw new LogicException('The AuthnRequest has not been parsed');
+        return $this->verifiedRequest ?? $this->receivedRequest
+            ?? throw new LogicException('The AuthnRequest has not been parsed');
     }
 }
