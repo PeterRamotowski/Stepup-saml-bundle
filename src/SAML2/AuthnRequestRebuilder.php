@@ -26,6 +26,7 @@ use SimpleSAML\SAML2\Type\SAMLDateTimeValue;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use SimpleSAML\SAML2\XML\samlp\Extensions as SAML2Extensions;
 use SimpleSAML\XMLSchema\Type\IDValue;
+use Surfnet\SamlBundle\Exception\InvalidArgumentException;
 use Surfnet\SamlBundle\Exception\RuntimeException;
 
 /**
@@ -35,11 +36,22 @@ use Surfnet\SamlBundle\Exception\RuntimeException;
  */
 final class AuthnRequestRebuilder
 {
+    private const array PARAMETERS = [
+        'id', 'issueInstant', 'requestedAuthnContext', 'subject', 'nameIdPolicy', 'conditions', 'forceAuthn',
+        'isPassive', 'assertionConsumerServiceURL', 'assertionConsumerServiceIndex', 'protocolBinding',
+        'attributeConsumingServiceIndex', 'providerName', 'issuer', 'destination', 'consent', 'extensions', 'scoping',
+    ];
+
     /**
      * @param array<string, mixed> $changes Constructor arguments to replace, by parameter name.
      */
     public static function with(SAML2AuthnRequest $request, array $changes): SAML2AuthnRequest
     {
+        $unknown = array_diff_key($changes, array_flip(self::PARAMETERS));
+        if ($unknown !== []) {
+            throw new InvalidArgumentException(sprintf('Unknown AuthnRequest parameters: %s', implode(', ', array_keys($unknown))));
+        }
+
         $extensions = $request->getExtensions();
 
         return new SAML2AuthnRequest(

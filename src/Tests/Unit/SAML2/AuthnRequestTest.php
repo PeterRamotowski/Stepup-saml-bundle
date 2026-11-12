@@ -25,8 +25,10 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use SimpleSAML\XML\DOMDocumentFactory;
+use Surfnet\SamlBundle\Exception\InvalidArgumentException;
 use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
+use Surfnet\SamlBundle\SAML2\AuthnRequestRebuilder;
 
 class AuthnRequestTest extends TestCase
 {
@@ -187,6 +189,16 @@ AUTHNREQUEST_IS_PASSIVE_F_AND_FORCE_AUTHN;
         $this->assertEquals($original->getScoping()->getIDPList(), $updated->getScoping()->getIDPList());
         $this->assertSame('updated@example.org', $request->getNameId());
         $this->assertSame('https://proxy.example.org', $updated->getScoping()->getRequesterId()[0]->getContent()->getValue());
+    }
+
+    #[Test]
+    public function rebuilding_with_an_unknown_parameter_name_is_rejected(): void
+    {
+        $request = SAML2AuthnRequest::fromXML(DOMDocumentFactory::fromString($this->authRequestNoSubject)->documentElement);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown AuthnRequest parameters: requestedAuthContext');
+        AuthnRequestRebuilder::with($request, ['requestedAuthContext' => null]);
     }
 
     public static function invalidSignatures(): iterable
