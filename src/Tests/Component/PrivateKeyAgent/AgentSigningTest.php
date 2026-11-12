@@ -18,8 +18,10 @@
 
 namespace Surfnet\SamlBundle\Tests\Component\PrivateKeyAgent;
 
+use Closure;
 use Mockery as m;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
@@ -43,6 +45,7 @@ use Surfnet\SamlBundle\PrivateKeyAgent\KeyMap;
 use Surfnet\SamlBundle\SAML2\AuthnRequestFactory;
 use Surfnet\SamlBundle\SAML2\BridgeContainer;
 use Surfnet\SamlBundle\Service\SigningService;
+use Surfnet\SamlBundle\Signing\KeyPair;
 use Surfnet\SamlBundle\Signing\Signers;
 use Surfnet\SamlBundle\Tests\FakePrivateKeyAgent;
 use Symfony\Component\Clock\MockClock;
@@ -169,6 +172,38 @@ class AgentSigningTest extends TestCase
         $this->expectExceptionMessage('The private key agent is not registered for RSA-SHA256 signatures');
 
         Signers::forHostedEntity($this->serviceProvider(true));
+    }
+
+    public static function agentIdentitiesWithoutCertificate(): iterable
+    {
+        yield 'hosted entity' => [
+            static fn () => Signers::forHostedEntity(new IdentityProvider([
+                'entityId' => 'https://idp.example.com/metadata',
+                'privateKeys' => [],
+                'privateKeyAgent' => true,
+            ])),
+            'The hosted entity "https://idp.example.com/metadata" uses the private key agent but has no certificate file',
+        ];
+        yield 'metadata key pair' => [
+            static function () {
+                $keyPair = new KeyPair();
+                $keyPair->publicKeyFile = '';
+                $keyPair->usePrivateKeyAgent = true;
+
+                return Signers::forKeyPair($keyPair);
+            },
+            'The metadata signing key pair uses the private key agent but has no certificate file',
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('agentIdentitiesWithoutCertificate')]
+    public function an_agent_identity_without_a_certificate_is_named_in_the_error(Closure $createSigner, string $message): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage($message);
+
+        $createSigner();
     }
 
     private function serviceProvider(bool $useAgent): ServiceProvider

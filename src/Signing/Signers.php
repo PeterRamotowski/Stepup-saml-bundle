@@ -18,6 +18,7 @@
 
 namespace Surfnet\SamlBundle\Signing;
 
+use Closure;
 use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
 use SimpleSAML\SAML2\Configuration\PrivateKey;
 use SimpleSAML\XMLSecurity\Alg\Signature\PrivateKeyAgentRSA;
@@ -34,37 +35,72 @@ use TypeError;
  * RSA-SHA256 signers for hosted entities: the private key agent for an agent identity, its local key otherwise.
  *
  * An agent identity never reads a private key file, so an agent failure cannot turn into a local signature.
+ *
+ * @SuppressWarnings("PHPMD.CouplingBetweenObjects")
  */
 final class Signers
 {
     public static function forHostedEntity(ServiceProvider|IdentityProvider $entity): SignatureAlgorithmInterface
     {
-        if ($entity->usesPrivateKeyAgent()) {
-            $certificateFile = $entity->getCertificateFile();
-            if (!is_string($certificateFile) || $certificateFile === '') {
-                throw new RuntimeException(sprintf(
-                    'The hosted entity "%s" uses the private key agent but has no certificate file',
-                    (string) $entity->getEntityId()
-                ));
+        return self::select(
+            sprintf('The hosted entity "%s"', (string) $entity->getEntityId()),
+            $entity->usesPrivateKeyAgent(),
+            static fn (): ?string => $entity->getCertificateFile(),
+            static function () use ($entity): SignatureAlgorithmInterface {
+                $privateKey = $entity->getPrivateKey(PrivateKey::NAME_DEFAULT);
+                if (!$privateKey instanceof PrivateKey) {
+                    throw new RuntimeException(sprintf(
+                        'The hosted entity "%s" has no default private key configured',
+                        (string) $entity->getEntityId()
+                    ));
+                }
+
+                return self::forPrivateKey($privateKey);
             }
-
-            return self::forAgentCertificate($certificateFile);
-        }
-
-        $privateKey = $entity->getPrivateKey(PrivateKey::NAME_DEFAULT);
-        if (!$privateKey instanceof PrivateKey) {
-            throw new RuntimeException(sprintf(
-                'The hosted entity "%s" has no default private key configured',
-                (string) $entity->getEntityId()
-            ));
-        }
-
-        return self::forPrivateKey($privateKey);
+        );
     }
 
-    public static function forPrivateKey(PrivateKey $privateKey): SignatureAlgorithmInterface
+    public static function forKeyPair(KeyPair $keyPair, ?PrivateKeyLoader $privateKeyLoader = null): SignatureAlgorithmInterface
     {
-        return self::forLocalKey((new PrivateKeyLoader())->loadPrivateKey($privateKey));
+        return self::select(
+            'The metadata signing key pair',
+            $keyPair->usePrivateKeyAgent,
+            static fn (): string => $keyPair->publicKeyFile,
+            static function () use ($keyPair, $privateKeyLoader): SignatureAlgorithmInterface {
+                if (!is_string($keyPair->privateKeyFile) || $keyPair->privateKeyFile === '') {
+                    throw new RuntimeException('No private key file is configured for signing');
+                }
+
+                return self::forPrivateKey(new PrivateKey($keyPair->privateKeyFile, 'metadata'), $privateKeyLoader);
+            }
+        );
+    }
+
+    /**
+     * @param Closure(): ?string $certificateFile Never invoked for a local identity.
+     * @param Closure(): SignatureAlgorithmInterface $localSigner Never invoked for an agent identity.
+     */
+    private static function select(
+        string $identity,
+        bool $useAgent,
+        Closure $certificateFile,
+        Closure $localSigner,
+    ): SignatureAlgorithmInterface {
+        if ($useAgent) {
+            $file = $certificateFile();
+            if ($file === null || $file === '') {
+                throw new RuntimeException(sprintf('%s uses the private key agent but has no certificate file', $identity));
+            }
+
+            return self::forAgentCertificate($file);
+        }
+
+        return $localSigner();
+    }
+
+    public static function forPrivateKey(PrivateKey $privateKey, ?PrivateKeyLoader $loader = null): SignatureAlgorithmInterface
+    {
+        return self::forLocalKey(($loader ?? new PrivateKeyLoader())->loadPrivateKey($privateKey));
     }
 
     public static function forLocalKey(LocalPrivateKey $privateKey): SignatureAlgorithmInterface

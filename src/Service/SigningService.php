@@ -42,15 +42,7 @@ class SigningService
     {
         $publicKey = $this->loadPublicKeyFromFile($keyPair->publicKeyFile);
 
-        if ($keyPair->usePrivateKeyAgent) {
-            $signer = Signers::forAgentCertificate($keyPair->publicKeyFile);
-        } else {
-            if (!is_string($keyPair->privateKeyFile) || $keyPair->privateKeyFile === '') {
-                throw new RuntimeException('No private key file is configured for signing');
-            }
-
-            $signer = Signers::forLocalKey($this->loadPrivateKeyFromFile($keyPair->privateKeyFile));
-        }
+        $signer = Signers::forKeyPair($keyPair, $this->privateKeyLoader);
 
         DomElementSigner::signEnveloped(
             $signable->getRootDomElement(),
