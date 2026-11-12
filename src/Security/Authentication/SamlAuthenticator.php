@@ -19,11 +19,12 @@
 namespace Surfnet\SamlBundle\Security\Authentication;
 
 use Psr\Log\LoggerInterface;
-use SAML2\Assertion;
+use SimpleSAML\SAML2\XML\saml\Assertion;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\RedirectBinding;
 use Surfnet\SamlBundle\SAML2\AuthnRequestFactory;
+use Surfnet\SamlBundle\SAML2\Response\AssertionValues;
 use Surfnet\SamlBundle\Security\Authentication\Handler\AuthenticationHandler;
 use Surfnet\SamlBundle\Security\Authentication\Passport\Badge\SamlAttributesBadge;
 use Surfnet\SamlBundle\Security\Authentication\Provider\SamlProviderInterface;
@@ -81,8 +82,10 @@ class SamlAuthenticator extends AbstractAuthenticator implements InteractiveAuth
             $authnRequest->setAuthenticationContextClassRef($this->authenticationContextClassRef);
         }
 
+        $response = $this->redirectBinding->createResponseFor($authnRequest);
         $this->samlAuthenticationStateHandler->setRequestId($authnRequest->getRequestId());
-        return $this->redirectBinding->createResponseFor($authnRequest);
+
+        return $response;
     }
 
     public function supports(Request $request): ?bool
@@ -144,7 +147,7 @@ class SamlAuthenticator extends AbstractAuthenticator implements InteractiveAuth
 
         return new SelfValidatingPassport(
             $userBadge,
-            [new SamlAttributesBadge($assertion->getAttributes())]
+            [new SamlAttributesBadge(AssertionValues::attributes($assertion))]
         );
     }
 

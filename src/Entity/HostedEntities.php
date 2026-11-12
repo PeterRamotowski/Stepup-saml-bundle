@@ -18,7 +18,7 @@
 
 namespace Surfnet\SamlBundle\Entity;
 
-use SAML2\Configuration\PrivateKey;
+use SimpleSAML\SAML2\Configuration\PrivateKey;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\Routing\RouterInterface;
 use function array_key_exists;
@@ -79,15 +79,26 @@ class HostedEntities
 
     private function createStandardEntityConfiguration(array $entityConfiguration): array
     {
-        $privateKey = new PrivateKey($entityConfiguration['private_key'], PrivateKey::NAME_DEFAULT);
-
-        return [
+        $configuration = [
             'entityId'                   => $this->generateUrl($entityConfiguration['entity_id_route']),
             'certificateFile'            => $entityConfiguration['public_key'],
-            'privateKeys'                => [$privateKey],
+            'privateKeys'                => [],
+            'privateKeyAgent'            => false,
             'blacklistedAlgorithms'      => [],
             'assertionEncryptionEnabled' => false
         ];
+
+        if (($entityConfiguration['use_private_key_agent'] ?? false) === true) {
+            $configuration['privateKeyAgent'] = true;
+
+            return $configuration;
+        }
+
+        $configuration['privateKeys'] = [
+            new PrivateKey($entityConfiguration['private_key'], PrivateKey::NAME_DEFAULT),
+        ];
+
+        return $configuration;
     }
 
     /**

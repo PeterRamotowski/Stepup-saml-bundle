@@ -18,14 +18,17 @@
 
 namespace Surfnet\SamlBundle\Tests\Unit\SAML2;
 
+use DOMDocument;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use SAML2\AuthnRequest as SAML2AuthnRequest;
-use SAML2\DOMDocumentFactory;
-use SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
+use SimpleSAML\XML\DOMDocumentFactory;
+use Surfnet\SamlBundle\Exception\InvalidArgumentException;
+use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
+use Surfnet\SamlBundle\SAML2\AuthnRequestRebuilder;
 
 class AuthnRequestTest extends TestCase
 {
@@ -107,12 +110,25 @@ AUTHNREQUEST_IS_PASSIVE_F_AND_FORCE_AUTHN;
     public function setting_the_subject_generates_valid_xml(string $nameId, ?string $format): void
     {
         $domDocument = DOMDocumentFactory::fromString($this->authRequestNoSubject);
-        $request     = new SAML2AuthnRequest($domDocument->documentElement);
+        $request     = SAML2AuthnRequest::fromXML($domDocument->documentElement);
 
         $authnRequest = AuthnRequest::createNew($request);
         $authnRequest->setSubject($nameId, $format);
 
-        $this->assertXmlStringEqualsXmlString($this->authRequestWithSubject, $authnRequest->getUnsignedXML());
+        $this->assertSame(
+            self::canonicalXml($this->authRequestWithSubject),
+            self::canonicalXml($authnRequest->getUnsignedXML())
+        );
+    }
+
+    // saml2 v7 declares namespaces on the elements that use them; exclusive C14N makes that placement irrelevant.
+    private static function canonicalXml(string $xml): string
+    {
+        $document = new DOMDocument();
+        $document->preserveWhiteSpace = false;
+        $document->loadXML($xml);
+
+        return $document->C14N(true);
     }
 
     #[Test]
@@ -120,16 +136,12 @@ AUTHNREQUEST_IS_PASSIVE_F_AND_FORCE_AUTHN;
     public function the_nameid_and_format_can_be_retrieved_from_the_authnrequest(): void
     {
         $domDocument = DOMDocumentFactory::fromString($this->authRequestWithSubject);
-        $request     = new SAML2AuthnRequest($domDocument->documentElement);
+        $request     = SAML2AuthnRequest::fromXML($domDocument->documentElement);
 
         $authnRequest = AuthnRequest::createNew($request);
 
-        $nameId = new NameID();
-        $nameId->setValue('user@example.org');
-        $nameId->setFormat('urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified');
-
-        $this->assertEquals($nameId->getValue(), $authnRequest->getNameId());
-        $this->assertEquals($nameId->getFormat(), $authnRequest->getNameIdFormat());
+        $this->assertEquals('user@example.org', $authnRequest->getNameId());
+        $this->assertEquals('urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified', $authnRequest->getNameIdFormat());
     }
 
     #[Test]
@@ -137,7 +149,7 @@ AUTHNREQUEST_IS_PASSIVE_F_AND_FORCE_AUTHN;
     public function the_acs_url_can_be_retrieved_from_the_authnrequest(): void
     {
         $domDocument = DOMDocumentFactory::fromString($this->authRequestWithSubject);
-        $request     = new SAML2AuthnRequest($domDocument->documentElement);
+        $request     = SAML2AuthnRequest::fromXML($domDocument->documentElement);
 
         $authnRequest = AuthnRequest::createNew($request);
 
@@ -150,11 +162,58 @@ AUTHNREQUEST_IS_PASSIVE_F_AND_FORCE_AUTHN;
     public function is_passive_and_force_authn_can_be_retrieved_from_the_authnrequest(string $xml, bool $isPassive, bool $forceAuthn): void
     {
         $domDocument = DOMDocumentFactory::fromString($xml);
-        $request     = new SAML2AuthnRequest($domDocument->documentElement);
+        $request     = SAML2AuthnRequest::fromXML($domDocument->documentElement);
         $authnRequest = AuthnRequest::createNew($request);
 
         $this->assertEquals($isPassive, $authnRequest->isPassive());
         $this->assertEquals($forceAuthn, $authnRequest->isForceAuthn());
+    }
+
+    #[Test]
+    public function changing_subject_and_scoping_preserves_existing_nested_elements(): void
+    {
+        $xml = str_replace(
+            ['</saml:Subject>', '</samlp:AuthnRequest>'],
+            ['<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"/></saml:Subject>',
+                '<samlp:Scoping ProxyCount="2"><samlp:IDPList><samlp:IDPEntry ProviderID="https://idp.example.org"/>'
+                . '</samlp:IDPList></samlp:Scoping></samlp:AuthnRequest>'],
+            $this->authRequestWithSubject
+        );
+        $original = SAML2AuthnRequest::fromXML(DOMDocumentFactory::fromString($xml)->documentElement);
+        $request = AuthnRequest::createNew($original);
+        $request->setSubject('updated@example.org');
+        $request->setScoping(['https://proxy.example.org'], 3);
+        $updated = SAML2AuthnRequest::fromXML(DOMDocumentFactory::fromString($request->getUnsignedXML())->documentElement);
+
+        $this->assertCount(1, $updated->getSubject()->getSubjectConfirmation());
+        $this->assertEquals($original->getScoping()->getIDPList(), $updated->getScoping()->getIDPList());
+        $this->assertSame('updated@example.org', $request->getNameId());
+        $this->assertSame('https://proxy.example.org', $updated->getScoping()->getRequesterId()[0]->getContent()->getValue());
+    }
+
+    #[Test]
+    public function rebuilding_with_an_unknown_parameter_name_is_rejected(): void
+    {
+        $request = SAML2AuthnRequest::fromXML(DOMDocumentFactory::fromString($this->authRequestNoSubject)->documentElement);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown AuthnRequest parameters: requestedAuthContext');
+        AuthnRequestRebuilder::with($request, ['requestedAuthContext' => null]);
+    }
+
+    public static function invalidSignatures(): iterable
+    {
+        yield 'malformed' => ['not!base64'];
+        yield 'empty' => [''];
+    }
+
+    #[Test]
+    #[DataProvider('invalidSignatures')]
+    public function deprecated_signed_requests_reject_invalid_base64_signatures(string $signature): void
+    {
+        $request = SAML2AuthnRequest::fromXML(DOMDocumentFactory::fromString($this->authRequestNoSubject)->documentElement);
+        $this->expectException(InvalidRequestException::class);
+        AuthnRequest::createSigned($request, 'encoded-request', null, $signature, 'signature-algorithm');
     }
 
     public static function provideIsPassiveAndForceAuthnCombinations(): array
@@ -168,13 +227,9 @@ AUTHNREQUEST_IS_PASSIVE_F_AND_FORCE_AUTHN;
 
     public static function provideNameIDAndFormatCombinations(): array
     {
-        $nameId = new NameID();
-        $nameId->setValue('user@example.org');
-        $nameId->setFormat('urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified');
-
         return [
-            'NameID without Format' => [$nameId->getValue(), null],
-            'NameID with Format'    => [$nameId->getValue(), $nameId->getFormat()]
+            'NameID without Format' => ['user@example.org', null],
+            'NameID with Format'    => ['user@example.org', 'urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified']
         ];
     }
 }

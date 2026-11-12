@@ -21,17 +21,21 @@ namespace Surfnet\SamlBundle\Tests\Http;
 use LogicException;
 use Mockery as m;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\DataProviderExternal;
+use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use SAML2\Compat\ContainerSingleton;
-use SAML2\Compat\MockContainer;
-use SAML2\Response\Processor;
+use SimpleSAML\SAML2\Compat\ContainerSingleton;
+use SimpleSAML\SAML2\Compat\MockContainer;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Entity\ServiceProviderRepository;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
 use Surfnet\SamlBundle\Http\Exception\UnknownServiceProviderException;
 use Surfnet\SamlBundle\Http\PostBinding;
 use Surfnet\SamlBundle\SAML2\ReceivedAuthnRequest;
+use Surfnet\SamlBundle\SAML2\Response\ResponseProcessor;
 use Surfnet\SamlBundle\Signing\SignatureVerifier;
+use Surfnet\SamlBundle\Tests\Unit\SAML2\AuthnRequestParserTest;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
@@ -41,12 +45,12 @@ class PostBindingAuthnRequestTest extends TestCase
 
     private const RAW_MESSAGE = <<<MESSAGE
 <?xml version="1.0"?>
-<samlp:AuthnRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" Destination="%s" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="aaf23196-1773-2113-474a-fe114412ab72" Version="2.0" IssueInstant="2004-12-05T09:21:59Z" AssertionConsumerServiceIndex="0" AttributeConsumingServiceIndex="0"><saml:Issuer>https://sp.example.com/SAML2</saml:Issuer><samlp:NameIDPolicy Format="urn:oasis:names:tc:SAML:2.0:nameid-format:transient" AllowCreate="true"/></samlp:AuthnRequest>
+<samlp:AuthnRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" Destination="%s" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="aaf23196-1773-2113-474a-fe114412ab72" Version="2.0" IssueInstant="2004-12-05T09:21:59Z" AssertionConsumerServiceIndex="0" AttributeConsumingServiceIndex="0"><saml:Issuer>https://sp.example.com/SAML2</saml:Issuer><samlp:NameIDPolicy Format="urn:oasis:names:tc:SAML:2.0:nameid-format:transient"/></samlp:AuthnRequest>
 
 MESSAGE;
     private const RAW_MESSAGE_NO_DESTINATION = <<<MESSAGE
 <?xml version="1.0"?>
-<samlp:AuthnRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="aaf23196-1773-2113-474a-fe114412ab72" Version="2.0" IssueInstant="2004-12-05T09:21:59Z" AssertionConsumerServiceIndex="0" AttributeConsumingServiceIndex="0"><saml:Issuer>https://sp.example.com/SAML2</saml:Issuer><samlp:NameIDPolicy Format="urn:oasis:names:tc:SAML:2.0:nameid-format:transient" AllowCreate="true"/></samlp:AuthnRequest>
+<samlp:AuthnRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="aaf23196-1773-2113-474a-fe114412ab72" Version="2.0" IssueInstant="2004-12-05T09:21:59Z" AssertionConsumerServiceIndex="0" AttributeConsumingServiceIndex="0"><saml:Issuer>https://sp.example.com/SAML2</saml:Issuer><samlp:NameIDPolicy Format="urn:oasis:names:tc:SAML:2.0:nameid-format:transient"/></samlp:AuthnRequest>
 
 MESSAGE;
 
@@ -56,12 +60,40 @@ MESSAGE;
 
     private m\MockInterface&SignatureVerifier $signatureVerifier;
 
+    #[Test]
+    #[DataProviderExternal(AuthnRequestParserTest::class, 'invalidRequests')]
+    public function invalid_authn_request_xml_is_an_http_bad_request(string $xml): void
+    {
+        $request = Request::create('https://idp.example.org/sso', 'POST', ['SAMLRequest' => base64_encode($xml)]);
+        $this->expectException(BadRequestHttpException::class);
+        $this->postBinding->receiveSignedAuthnRequestFrom($request);
+    }
+
+    public static function invalidTransportPayloads(): iterable
+    {
+        yield 'missing parameter' => [null];
+        yield 'empty parameter' => [''];
+        yield 'invalid base64' => ['!invalid!'];
+        yield 'encoded non-XML data' => [base64_encode('not XML')];
+        yield 'deflated rather than plain XML' => [base64_encode(gzdeflate('<request/>'))];
+    }
+
+    #[Test]
+    #[DataProvider('invalidTransportPayloads')]
+    public function transport_errors_are_http_bad_requests(?string $payload): void
+    {
+        $parameters = $payload === null ? [] : ['SAMLRequest' => $payload];
+        $request = Request::create('https://idp.example.org/sso', 'POST', $parameters);
+        $this->expectException(BadRequestHttpException::class);
+        $this->postBinding->receiveSignedAuthnRequestFrom($request);
+    }
+
     public function setUp(): void
     {
         $this->entityRepository = m::mock(ServiceProviderRepository::class);
         $this->signatureVerifier = m::mock(SignatureVerifier::class);
         $this->postBinding = new PostBinding(
-            m::mock(Processor::class),
+            m::mock(ResponseProcessor::class),
             $this->signatureVerifier,
             $this->entityRepository
         );
@@ -111,7 +143,7 @@ MESSAGE;
         self::expectException(LogicException::class);
         self::expectExceptionMessage('Could not receive AuthnRequest from HTTP Request: a ServiceProviderRepository must be configured');
         $postBinding = new PostBinding(
-            m::mock(Processor::class),
+            m::mock(ResponseProcessor::class),
             $this->signatureVerifier,
             null
         );
@@ -143,6 +175,23 @@ MESSAGE;
         $request->setMethod(Request::METHOD_POST);
         self::expectException(BadRequestHttpException::class);
         self::expectExceptionMessage('A signed AuthnRequest must have the Destination attribute');
+
+        $this->postBinding->receiveSignedAuthnRequestFrom($request);
+    }
+
+    public function test_receive_signed_authn_request_protocol_violation_is_a_bad_request(): void
+    {
+        $requestUri = 'https://stepup.example.com/sso';
+        $message = str_replace(
+            'nameid-format:transient"',
+            'nameid-format:transient" AllowCreate="true"',
+            sprintf(self::RAW_MESSAGE, 'https://stepup.example.com/sso')
+        );
+        $request = new Request([], ['SAMLRequest' => base64_encode($message)], [], [], [], ['REQUEST_URI' => $requestUri]);
+        $request->setMethod(Request::METHOD_POST);
+
+        self::expectException(BadRequestHttpException::class);
+        self::expectExceptionMessage('Invalid AuthnRequest: AllowCreate');
 
         $this->postBinding->receiveSignedAuthnRequestFrom($request);
     }

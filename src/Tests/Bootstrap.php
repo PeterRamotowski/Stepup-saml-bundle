@@ -17,7 +17,7 @@
  */
 
 use Psr\Log\NullLogger;
-use SAML2\Compat\ContainerSingleton;
+use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use Surfnet\SamlBundle\Tests\TestSaml2Container;
 
 require_once __DIR__ . '/../../vendor/autoload.php';

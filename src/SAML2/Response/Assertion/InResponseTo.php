@@ -18,26 +18,13 @@
 
 namespace Surfnet\SamlBundle\SAML2\Response\Assertion;
 
-use SAML2\Assertion;
+use SimpleSAML\SAML2\XML\saml\Assertion;
+use Surfnet\SamlBundle\SAML2\Response\AssertionValues;
 
 class InResponseTo
 {
     public static function assertEquals(Assertion $assertion, mixed $inResponseTo): bool
     {
-        $assertionInResponseTo = self::getInResponseTo($assertion);
-
-        return $assertionInResponseTo === $inResponseTo;
-    }
-
-    private static function getInResponseTo(Assertion $assertion): ?string
-    {
-        $subjectConfirmationArray = $assertion->getSubjectConfirmation();
-
-        if ($subjectConfirmationArray === []) {
-            return null;
-        }
-
-        $subjectConfirmation = $subjectConfirmationArray[0];
-        return $subjectConfirmation->getSubjectConfirmationData()?->getInResponseTo();
+        return AssertionValues::inResponseTo($assertion) === $inResponseTo;
     }
 }

@@ -18,21 +18,16 @@
 
 namespace Surfnet\SamlBundle\Signing;
 
-use DOMElement;
-use DOMNode;
+use Dom\Element;
+use Dom\Node;
 
 interface Signable
 {
-    /**
-     * @return DOMElement
-     */
-    public function getRootDomElement(): DOMElement;
+    public function getRootDomElement(): Element;
 
     /**
-     * Get the DomNode before which the signature should be injected. Return null if you want to append the signature
+     * Get the node before which the signature should be injected. Return null if you want to append the signature
      * to the root element
-     *
-     * @return null|DomNode
      */
-    public function getAppendBeforeNode(): ?DOMNode;
+    public function getAppendBeforeNode(): ?Node;
 }

@@ -19,9 +19,15 @@
 namespace Surfnet\SamlBundle\SAML2;
 
 use BadMethodCallException;
+use Dom\Element;
+use Dom\XMLDocument;
 use DOMElement;
+use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
-use SAML2\Compat\AbstractContainer;
+use SimpleSAML\SAML2\Compat\AbstractContainer;
+use SimpleSAML\XMLSecurity\Alg\Encryption\EncryptionAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Alg\KeyTransport\KeyTransportAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
 use Surfnet\SamlBundle\Exception\InvalidArgumentException;
 
 /**
@@ -30,8 +36,38 @@ use Surfnet\SamlBundle\Exception\InvalidArgumentException;
  */
 class BridgeContainer extends AbstractContainer
 {
-    public function __construct(private readonly LoggerInterface $logger)
+    public function __construct(
+        private readonly LoggerInterface $logger,
+        private readonly ClockInterface $clock,
+    ) {
+        // The parent default nests the factory lists, which the factories' flat in_array check never matches.
+        $this->blacklistedEncryptionAlgorithms = array_values(array_unique(array_merge(
+            EncryptionAlgorithmFactory::DEFAULT_BLACKLIST,
+            KeyTransportAlgorithmFactory::DEFAULT_BLACKLIST,
+            SignatureAlgorithmFactory::DEFAULT_BLACKLIST,
+        )));
+    }
+
+    /**
+     * @param array<mixed>|null $algos Algorithm URIs to forbid, or null to use each factory's own default.
+     */
+    public function setBlacklistedAlgorithms(?array $algos): void
     {
+        if ($algos !== null) {
+            foreach ($algos as $algo) {
+                if (!is_string($algo)) {
+                    throw new InvalidArgumentException('Blacklisted algorithms must be a flat list of algorithm URIs.');
+                }
+            }
+            $algos = array_values($algos);
+        }
+
+        $this->blacklistedEncryptionAlgorithms = $algos;
+    }
+
+    public function getClock(): ClockInterface
+    {
+        return $this->clock;
     }
 
     /**
@@ -50,10 +86,16 @@ class BridgeContainer extends AbstractContainer
         return '_' . bin2hex(openssl_random_pseudo_bytes(30));
     }
 
-    public function debugMessage($message, $type): void
+    /**
+     * @param Element|DOMElement|string $message
+     */
+    public function debugMessage($message, string $type): void
     {
-        if ($message instanceof DOMElement) {
-            $message = $message->ownerDocument->saveXML($message);
+        if ($message instanceof Element) {
+            $document = $message->ownerDocument;
+            $message = $document instanceof XMLDocument ? $document->saveXml($message) : null;
+        } elseif ($message instanceof DOMElement) {
+            $message = $message->ownerDocument?->saveXML($message);
         }
 
         if (!is_string($message)) {
@@ -63,14 +105,14 @@ class BridgeContainer extends AbstractContainer
         $this->logger->debug($message, ['type' => $type]);
     }
 
-    public function redirect($url, $data = []): void
+    /**
+     * @param array<string, mixed> $data
+     * @throws BadMethodCallException
+     */
+    public function getPOSTRedirectURL(string $url, array $data = []): string
     {
         $this->notSupported(__METHOD__);
-    }
-
-    public function postRedirect($url, $data = []): void
-    {
-        $this->notSupported(__METHOD__);
+        return '';
     }
 
     /** @throws BadMethodCallException */

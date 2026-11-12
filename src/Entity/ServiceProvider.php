@@ -18,12 +18,20 @@
 
 namespace Surfnet\SamlBundle\Entity;
 
-use SAML2\Configuration\ServiceProvider as ServiceProviderConfiguration;
+use SimpleSAML\SAML2\Configuration\ServiceProvider as ServiceProviderConfiguration;
 
 class ServiceProvider extends ServiceProviderConfiguration
 {
     public function getAssertionConsumerUrl()
     {
         return $this->get('assertionConsumerUrl');
+    }
+
+    /**
+     * Whether the certificate's agent key signs and decrypts for this entity instead of a local private key.
+     */
+    public function usesPrivateKeyAgent(): bool
+    {
+        return $this->get('privateKeyAgent', false) === true;
     }
 }

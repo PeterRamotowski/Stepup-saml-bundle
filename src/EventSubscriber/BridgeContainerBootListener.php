@@ -20,14 +20,14 @@ declare(strict_types = 1);
 
 namespace Surfnet\SamlBundle\EventSubscriber;
 
-use SAML2\Compat\ContainerSingleton;
+use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use Surfnet\SamlBundle\SAML2\BridgeContainer;
+use Symfony\Component\Console\ConsoleEvents;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
- * When a request is triggered, set the ContainerSingleton to
+ * When a request or console command starts, set the ContainerSingleton to
  * be the BridgeContainer. We use the BridgeContainer to add some
  * convenience methods to the container like getting a specific
  * logger, or to create a traceable request id (sari).
@@ -43,12 +43,15 @@ class BridgeContainerBootListener implements EventSubscriberInterface
 
     public static function getSubscribedEvents(): array
     {
-        return [
-            KernelEvents::REQUEST => ['onKernelRequest', 256],
-        ];
+        $events = [KernelEvents::REQUEST => ['onKernelRequest', 256]];
+        if (class_exists(ConsoleEvents::class)) {
+            $events[ConsoleEvents::COMMAND] = ['onKernelRequest', 256];
+        }
+
+        return $events;
     }
 
-    public function onKernelRequest(RequestEvent $event): void
+    public function onKernelRequest(): void
     {
         ContainerSingleton::setContainer($this->bridgeContainer);
     }

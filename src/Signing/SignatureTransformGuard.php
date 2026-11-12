@@ -18,29 +18,25 @@
 
 namespace Surfnet\SamlBundle\Signing;
 
+use Dom\Document;
+use Dom\Element;
 use DOMDocument;
 use DOMElement;
-use DOMXPath;
-use RuntimeException;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
 
 /**
  * Rejects XML-DSig `<ds:Transform>` algorithms that are not needed for SAML 2.0 signature
- * verification, before the document reaches simplesamlphp/saml2's signature processing.
+ * verification, before the document reaches signature processing.
  *
- * simplesamlphp/saml2 <=4.20.2 (and the underlying robrichards/xmlseclibs it uses) has no
- * upstream patch for GHSA-5cjr-mxj5-wmrx: an attacker-controlled `<ds:Transform
- * Algorithm="...xpath-19991116">` element executes an arbitrary, attacker-supplied XPath
- * expression during signature-reference canonicalization, which can be used for a Denial of
- * Service. This guard implements the same mitigation the advisory describes ("restrict
- * transforms to only the transform-algorithms mentioned in the SAML 2.0 Core Specifications")
- * directly, since no patched release of the v4 line exists or is planned. simplesamlphp/saml2
- * v5+/v6+ fix this internally but are a ground-up rewrite without the SP/IdP response
- * processing this bundle depends on, so are not a viable upgrade path yet.
+ * Introduced for GHSA-5cjr-mxj5-wmrx in simplesamlphp/saml2 <=4.20.2: an attacker-controlled
+ * `<ds:Transform Algorithm="...xpath-19991116">` executed an attacker-supplied XPath expression
+ * during canonicalization. simplesamlphp/xml-security 3.x, used with saml2 v7, still evaluates
+ * XPath transforms (bounded by MAX_TRANSFORMS and MAX_XPATH_NAMESPACES), and SAML 2.0 never needs
+ * them, so the guard is kept: it restricts transforms to the algorithms the SAML 2.0 Core
+ * specification uses.
  *
- * A SAML message can carry independently signed Response and Assertion elements, each with
- * their own `<ds:Signature>`/`<ds:Transform>` chain, so this scans the whole document rather
- * than a single signature node.
+ * Accepts a complete document or a signature element. Response and Assertion signatures must both be
+ * checked, including Assertion signatures that only become visible after decryption.
  */
 final class SignatureTransformGuard
 {
@@ -56,16 +52,10 @@ final class SignatureTransformGuard
         'http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments',
     ];
 
-    public static function assertNoForbiddenTransforms(DOMDocument $document): void
+    public static function assertNoForbiddenTransforms(DOMDocument|Document|DOMElement|Element $document): void
     {
-        $xpath = new DOMXPath($document);
-        $nodes = $xpath->query("//*[local-name()='Transform']");
-        if ($nodes === false) {
-            throw new RuntimeException('Failed to evaluate XPath while scanning for signature transforms');
-        }
-
-        foreach ($nodes as $node) {
-            if (!$node instanceof DOMElement || !$node->hasAttribute('Algorithm')) {
+        foreach ($document->getElementsByTagNameNS('*', 'Transform') as $node) {
+            if (!$node->hasAttribute('Algorithm')) {
                 continue;
             }
 

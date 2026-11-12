@@ -22,12 +22,12 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use SAML2\Assertion;
-use SAML2\Compat\ContainerSingleton;
-use SAML2\Compat\MockContainer;
-use SAML2\XML\saml\SubjectConfirmation;
-use SAML2\XML\saml\SubjectConfirmationData;
+use SimpleSAML\SAML2\Compat\ContainerSingleton;
+use SimpleSAML\SAML2\Compat\MockContainer;
+use SimpleSAML\SAML2\XML\saml\Assertion;
+use SimpleSAML\XML\DOMDocumentFactory;
 use Surfnet\SamlBundle\SAML2\Response\Assertion\InResponseTo;
+use Surfnet\SamlBundle\Tests\TestAssertions;
 
 class InResponseToTest extends TestCase
 {
@@ -47,35 +47,31 @@ class InResponseToTest extends TestCase
     #[Group('saml2')]
     public function in_reponse_to_equality_is_strictly_checked(): void
     {
-        $assertion                   = new Assertion();
-        $subjectConfirmationWithData = new SubjectConfirmation();
-        $subjectConfirmationData     = new SubjectConfirmationData();
-        $subjectConfirmationData->setInResponseTo('1');
-        $subjectConfirmationWithData->setSubjectConfirmationData($subjectConfirmationData);
-        $assertion->setSubjectConfirmation([$subjectConfirmationWithData]);
+        $assertion = TestAssertions::create(inResponseTo: '_1');
 
-        $this->assertTrue(InResponseTo::assertEquals($assertion, '1'));
+        $this->assertTrue(InResponseTo::assertEquals($assertion, '_1'));
         $this->assertFalse(InResponseTo::assertEquals($assertion, 1));
     }
 
     public static function provideAssertionsWithoutInResponseTo(): array
     {
         ContainerSingleton::setContainer(new MockContainer());
-        $assertionWithoutSubjectConfirmation = new Assertion();
 
-        $assertionWithoutSubjectConfirmationData = new Assertion();
-        $subjectConfirmation = new SubjectConfirmation();
-        $assertionWithoutSubjectConfirmationData->setSubjectConfirmation([$subjectConfirmation]);
-
-        $assertionWithEmptyInResponseTo = new Assertion();
-        $subjectConfirmationWithData = new SubjectConfirmation();
-        $subjectConfirmationWithData->setSubjectConfirmationData(new SubjectConfirmationData());
-        $assertionWithEmptyInResponseTo->setSubjectConfirmation([$subjectConfirmationWithData]);
+        $assertionWithSubject = static fn (string $subject): Assertion => Assertion::fromXML(
+            DOMDocumentFactory::fromString(
+                '<saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="_a" Version="2.0"'
+                . ' IssueInstant="2026-11-04T12:00:00Z"><saml:Issuer>https://idp.example.com</saml:Issuer>'
+                . '<saml:Subject><saml:NameID>user</saml:NameID>' . $subject . '</saml:Subject></saml:Assertion>'
+            )->documentElement
+        );
 
         return [
-            'No Subject Confirmation'      => [$assertionWithoutSubjectConfirmation],
-            'No Subject Confirmation Data' => [$assertionWithoutSubjectConfirmationData],
-            'Empty In Reponse To'          => [$assertionWithEmptyInResponseTo]
+            'No Subject Confirmation'      => [$assertionWithSubject('')],
+            'No Subject Confirmation Data' => [TestAssertions::create(nameId: 'user')],
+            'Empty In Reponse To'          => [$assertionWithSubject(
+                '<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">'
+                . '<saml:SubjectConfirmationData/></saml:SubjectConfirmation>'
+            )],
         ];
     }
 }

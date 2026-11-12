@@ -18,9 +18,9 @@
 
 namespace Surfnet\SamlBundle\Metadata;
 
-use SAML2\DOMDocumentFactory;
-use SAML2\Utilities\Certificate;
-use SAML2\Utilities\File;
+use SimpleSAML\SAML2\Utilities\File;
+use SimpleSAML\XML\DOMDocumentFactory;
+use SimpleSAML\XMLSecurity\Utils\Certificate;
 use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\Service\SigningService;
 use Surfnet\SamlBundle\Signing\KeyPair;
@@ -50,11 +50,14 @@ class MetadataFactory
         $metadata = $this->getMetadata();
         $keyPair = $this->buildKeyPairFrom($this->metadataConfiguration);
 
-        $metadata->document = DOMDocumentFactory::create();
-        $metadata->document->loadXML($this->templateEngine->render(
+        $xml = $this->templateEngine->render(
             '@SurfnetSaml/Metadata/metadata.xml.twig',
             ['metadata' => $metadata]
-        ));
+        );
+        if ($xml === '') {
+            throw new RuntimeException('The metadata template rendered an empty document');
+        }
+        $metadata->document = DOMDocumentFactory::fromString($xml);
 
         $this->signingService->sign($metadata, $keyPair);
 
@@ -98,6 +101,7 @@ class MetadataFactory
         $keyPair = new KeyPair();
         $keyPair->privateKeyFile = $metadataConfiguration->privateKey;
         $keyPair->publicKeyFile = $metadataConfiguration->publicKey;
+        $keyPair->usePrivateKeyAgent = $metadataConfiguration->usePrivateKeyAgent;
 
         return $keyPair;
     }

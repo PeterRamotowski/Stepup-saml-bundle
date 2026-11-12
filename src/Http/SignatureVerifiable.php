@@ -18,13 +18,9 @@
 
 namespace Surfnet\SamlBundle\Http;
 
-use RobRichards\XMLSecLibs\XMLSecurityKey;
+use SimpleSAML\XMLSecurity\Key\PublicKey;
 
 interface SignatureVerifiable
 {
-    /**
-     * @param XMLSecurityKey $key
-     * @return bool
-     */
-    public function verify(XMLSecurityKey $key);
+    public function verify(PublicKey $key): bool;
 }

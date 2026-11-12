@@ -24,6 +24,7 @@ use Surfnet\SamlBundle\Entity\StaticIdentityProviderRepository;
 use Surfnet\SamlBundle\Entity\StaticServiceProviderRepository;
 use Surfnet\SamlBundle\Exception\SamlInvalidConfigurationException;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
+use Symfony\Component\Config\Definition\Processor;
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
@@ -51,6 +52,136 @@ class SurfnetSamlExtension extends Extension
         if (array_key_exists('remote', $mergedConfig)) {
             $this->parseRemoteConfiguration($mergedConfig['remote'], $container);
         }
+
+        $this->parsePrivateKeyAgentConfiguration($configs, $mergedConfig['hosted'], $loader, $container);
+    }
+
+    /**
+     * @param array<array<string, mixed>> $configs
+     * @param array<string, mixed> $hosted
+     */
+    private function parsePrivateKeyAgentConfiguration(
+        array $configs,
+        array $hosted,
+        Loader\YamlFileLoader $loader,
+        ContainerBuilder $container
+    ): void {
+        $config = (new Processor())->processConfiguration(
+            new PrivateKeyAgentConfiguration(),
+            PrivateKeyAgentConfiguration::resolveEnabled(array_column($configs, 'private_key_agent'), $container)
+        );
+        $signingIdentities = $this->parsePrivateKeyAgentIdentities($hosted);
+
+        if (!$config['enabled']) {
+            if ($signingIdentities !== []) {
+                throw new InvalidConfigurationException(sprintf(
+                    '%s.use_private_key_agent requires surfnet_saml.private_key_agent.enabled',
+                    array_key_first($signingIdentities)
+                ));
+            }
+
+            return;
+        }
+
+        if ($signingIdentities !== [] && !in_array(
+            PrivateKeyAgentConfiguration::REQUIRED_SIGNATURE_ALGORITHM,
+            $config['algorithms']['signature'],
+            true
+        )) {
+            throw new InvalidConfigurationException(
+                'surfnet_saml.private_key_agent.algorithms.signature must include RSA-SHA256 when an identity uses the agent'
+            );
+        }
+
+        $loader->load('services_private_key_agent.yaml');
+        $container->setAlias('surfnet_saml.saml2.assertion_decrypter', 'surfnet_saml.private_key_agent.assertion_decrypter');
+        if (!class_exists('Symfony\Component\Console\Command\Command')) {
+            $container->removeDefinition('surfnet_saml.private_key_agent.validate_command');
+        }
+
+        $container
+            ->getDefinition('surfnet_saml.private_key_agent.symfony_http_client')
+            ->replaceArgument(0, [
+                'timeout' => $config['timeout'],
+                'max_duration' => $config['max_duration'],
+                // A redirect would send the bearer token to another URL.
+                'max_redirects' => 0,
+                'verify_peer' => true,
+                'verify_host' => true,
+            ]);
+        $container
+            ->getDefinition('surfnet_saml.private_key_agent.token_provider')
+            ->replaceArgument(0, array_map(static fn (array $key): string => $key['token'], $config['keys']));
+        $container
+            ->getDefinition('surfnet_saml.private_key_agent.key_map')
+            ->replaceArgument(0, array_map(
+                static fn (array $key): array => [
+                    'certificate_file' => $key['certificate_file'],
+                    'operations' => array_values(array_unique($key['operations'])),
+                ],
+                $config['keys']
+            ))
+            ->replaceArgument(1, $signingIdentities);
+
+        foreach (['signature_backend', 'encryption_backend'] as $backend) {
+            $container
+                ->getDefinition('surfnet_saml.private_key_agent.' . $backend)
+                ->replaceArgument(3, $config['base_url'])
+                ->replaceArgument(6, $config['allow_insecure_http']);
+        }
+
+        $container
+            ->getDefinition('surfnet_saml.private_key_agent.algorithm_registrar')
+            ->replaceArgument(2, array_values(array_unique($config['algorithms']['signature'])))
+            ->replaceArgument(3, array_values(array_unique($config['algorithms']['key_transport'])));
+    }
+
+    /**
+     * @param array<string, mixed> $hosted
+     * @return array<string, string> Certificate file by configuration path of each identity that signs through the agent
+     */
+    private function parsePrivateKeyAgentIdentities(array $hosted): array
+    {
+        $identities = [];
+        foreach (['service_provider', 'identity_provider', 'metadata'] as $name) {
+            $path = 'surfnet_saml.hosted.' . $name;
+            $identity = is_array($hosted[$name] ?? null) ? $hosted[$name] : [];
+            $useAgent = $identity['use_private_key_agent'] ?? false;
+            if (!is_bool($useAgent)) {
+                throw new InvalidConfigurationException(sprintf('%s.use_private_key_agent must be a boolean', $path));
+            }
+            if (!$useAgent || ($name !== 'metadata' && empty($identity['enabled']))) {
+                continue;
+            }
+
+            $identities[$path] = $this->parsePrivateKeyAgentCertificate($path, $identity);
+        }
+
+        return $identities;
+    }
+
+    /**
+     * @param array<mixed> $identity
+     */
+    private function parsePrivateKeyAgentCertificate(string $path, array $identity): string
+    {
+        // Never configure both, so that an agent failure cannot fall back to a local key.
+        if (!empty($identity['private_key'])) {
+            throw new InvalidConfigurationException(sprintf(
+                '%s.private_key must not be set when %s.use_private_key_agent is true',
+                $path,
+                $path
+            ));
+        }
+        if (!is_string($identity['public_key'] ?? null) || $identity['public_key'] === '') {
+            throw new InvalidConfigurationException(sprintf(
+                '%s.public_key must be set to the certificate of the agent key when %s.use_private_key_agent is true',
+                $path,
+                $path
+            ));
+        }
+
+        return $identity['public_key'];
     }
 
     /**
@@ -115,6 +246,7 @@ class SurfnetSamlExtension extends Extension
             'entityIdRoute' => $configuration['metadata']['entity_id_route'],
             'publicKey'     => $configuration['metadata']['public_key'],
             'privateKey'    => $configuration['metadata']['private_key'],
+            'usePrivateKeyAgent' => ($configuration['metadata']['use_private_key_agent'] ?? false) === true,
             'isSp'          => false,
             'isIdP'         => false
         ];

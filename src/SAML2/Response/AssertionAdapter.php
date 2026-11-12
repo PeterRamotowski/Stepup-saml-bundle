@@ -18,8 +18,7 @@
 
 namespace Surfnet\SamlBundle\SAML2\Response;
 
-use SAML2\Assertion;
-use SAML2\XML\saml\NameID;
+use SimpleSAML\SAML2\XML\saml\Assertion;
 use Surfnet\SamlBundle\SAML2\Attribute\AttributeDictionary;
 use Surfnet\SamlBundle\SAML2\Attribute\AttributeSetInterface;
 use Surfnet\SamlBundle\SAML2\Attribute\ConfigurableAttributeSetFactory;
@@ -37,12 +36,7 @@ class AssertionAdapter
 
     public function getNameID(): ?string
     {
-        $data = $this->assertion->getNameId();
-        if ($data instanceof NameID) {
-            return $data->getValue();
-        }
-
-        return null;
+        return AssertionValues::nameId($this->assertion);
     }
 
     /**

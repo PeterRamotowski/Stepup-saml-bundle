@@ -1,0 +1,90 @@
+services:
+    _defaults:
+        public: false
+        autowire: false
+        autoconfigure: false
+
+    # Arguments set to null are replaced by Surfnet\SamlBundle\DependencyInjection\SurfnetSamlExtension.
+
+    surfnet_saml.private_key_agent.symfony_http_client:
+        class: Symfony\Contracts\HttpClient\HttpClientInterface
+        factory: ['Symfony\Component\HttpClient\HttpClient', 'create']
+        arguments:
+            - null # options
+
+    surfnet_saml.private_key_agent.psr17_factory:
+        class: Nyholm\Psr7\Factory\Psr17Factory
+
+    surfnet_saml.private_key_agent.http_client:
+        class: Symfony\Component\HttpClient\Psr18Client
+        arguments:
+            - '@surfnet_saml.private_key_agent.symfony_http_client'
+            - '@surfnet_saml.private_key_agent.psr17_factory'
+            - '@surfnet_saml.private_key_agent.psr17_factory'
+
+    surfnet_saml.private_key_agent.token_provider:
+        class: Surfnet\SamlBundle\PrivateKeyAgent\ConfiguredTokenProvider
+        arguments:
+            - null # tokens by key name
+
+    surfnet_saml.private_key_agent.key_map:
+        class: Surfnet\SamlBundle\PrivateKeyAgent\KeyMap
+        public: true
+        arguments:
+            - null # keys
+            - null # hosted identities that sign through the agent
+
+    surfnet_saml.private_key_agent.assertion_decrypter:
+        class: Surfnet\SamlBundle\SAML2\Response\AgentAssertionDecrypter
+        arguments:
+            - '@surfnet_saml.saml2.local_assertion_decrypter'
+            - !service_closure '@surfnet_saml.private_key_agent.key_map'
+            - '@logger'
+
+    surfnet_saml.private_key_agent.validate_command:
+        class: Surfnet\SamlBundle\PrivateKeyAgent\ValidateKeyMapCommand
+        arguments:
+            - !service_closure '@surfnet_saml.private_key_agent.key_map'
+        tags: ['console.command']
+
+    surfnet_saml.private_key_agent.signature_key_name_resolver:
+        class: SimpleSAML\XMLSecurity\Backend\PrivateKeyAgent\FingerprintKeyNameResolver
+        factory: ['@surfnet_saml.private_key_agent.key_map', 'resolverFor']
+        arguments: ['sign']
+
+    surfnet_saml.private_key_agent.decryption_key_name_resolver:
+        class: SimpleSAML\XMLSecurity\Backend\PrivateKeyAgent\FingerprintKeyNameResolver
+        factory: ['@surfnet_saml.private_key_agent.key_map', 'resolverFor']
+        arguments: ['decrypt']
+
+    surfnet_saml.private_key_agent.signature_backend:
+        class: SimpleSAML\XMLSecurity\Backend\PrivateKeyAgent\PrivateKeyAgentSignatureBackend
+        arguments:
+            - '@surfnet_saml.private_key_agent.http_client'
+            - '@surfnet_saml.private_key_agent.http_client'
+            - '@surfnet_saml.private_key_agent.http_client'
+            - null # base URL
+            - '@surfnet_saml.private_key_agent.token_provider'
+            - '@surfnet_saml.private_key_agent.signature_key_name_resolver'
+            - null # allow insecure HTTP
+
+    surfnet_saml.private_key_agent.encryption_backend:
+        class: SimpleSAML\XMLSecurity\Backend\PrivateKeyAgent\PrivateKeyAgentEncryptionBackend
+        arguments:
+            - '@surfnet_saml.private_key_agent.http_client'
+            - '@surfnet_saml.private_key_agent.http_client'
+            - '@surfnet_saml.private_key_agent.http_client'
+            - null # base URL
+            - '@surfnet_saml.private_key_agent.token_provider'
+            - '@surfnet_saml.private_key_agent.decryption_key_name_resolver'
+            - null # allow insecure HTTP
+
+    surfnet_saml.private_key_agent.algorithm_registrar:
+        class: Surfnet\SamlBundle\PrivateKeyAgent\AlgorithmRegistrar
+        public: true
+        arguments:
+            # Closures, so that tokens and the agent URL are only resolved for the first agent operation.
+            - !service_closure '@surfnet_saml.private_key_agent.signature_backend'
+            - !service_closure '@surfnet_saml.private_key_agent.encryption_backend'
+            - null # signature algorithms
+            - null # key-transport algorithms
