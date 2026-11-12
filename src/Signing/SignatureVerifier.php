@@ -22,7 +22,6 @@ use Psr\Log\LoggerInterface;
 use SimpleSAML\SAML2\Certificate\Key;
 use SimpleSAML\SAML2\Certificate\KeyLoader;
 use SimpleSAML\SAML2\Certificate\X509;
-use SimpleSAML\XMLSecurity\Constants as C;
 use SimpleSAML\XMLSecurity\Exception\SignatureVerificationFailedException;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
@@ -71,7 +70,7 @@ class SignatureVerifier
 
     public function verifySignatureAlgorithmSupported(ReceivedAuthnRequestQueryString $request): bool
     {
-        return $request->getSignatureAlgorithm() === C::SIG_RSA_SHA256;
+        return SignatureAlgorithms::supportsRedirectVerification($request->getSignatureAlgorithm());
     }
 
     public function isRequestSignedWith(SignatureVerifiable $request, X509 $publicKey): bool
@@ -118,13 +117,15 @@ class SignatureVerifier
      */
     public function isSignedWith(AuthnRequest $request, X509 $publicKey): bool
     {
-        if (!$request->isSigned() || $request->getSignatureAlgorithm() !== C::SIG_RSA_SHA256) {
+        if (!$request->isSigned()
+            || !SignatureAlgorithms::supportsRedirectVerification((string) $request->getSignatureAlgorithm())
+        ) {
             return false;
         }
 
         $this->logger->debug(sprintf('Attempting to verify signature with certificate "%s"', $publicKey->getCertificate()));
-        $verifier = SignatureAlgorithms::factory()->getAlgorithm(
-            C::SIG_RSA_SHA256,
+        $verifier = SignatureAlgorithms::forRedirectVerification(
+            (string) $request->getSignatureAlgorithm(),
             CertificateKeys::toPublicKey($publicKey)
         );
 

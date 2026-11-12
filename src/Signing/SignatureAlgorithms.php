@@ -22,6 +22,7 @@ use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\XMLSecurity\Alg\Signature\RSA;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
+use SimpleSAML\XMLSecurity\Constants as C;
 use SimpleSAML\XMLSecurity\Exception\UnsupportedAlgorithmException;
 use SimpleSAML\XMLSecurity\Key\PublicKey;
 
@@ -30,6 +31,20 @@ use SimpleSAML\XMLSecurity\Key\PublicKey;
  */
 final class SignatureAlgorithms
 {
+    public static function supportsRedirectVerification(string $algorithm): bool
+    {
+        return $algorithm === C::SIG_RSA_SHA256;
+    }
+
+    public static function forRedirectVerification(string $algorithm, PublicKey $key): SignatureAlgorithmInterface
+    {
+        if (!self::supportsRedirectVerification($algorithm)) {
+            throw new UnsupportedAlgorithmException(sprintf('Unsupported Redirect signature algorithm "%s"', $algorithm));
+        }
+
+        return self::forVerification($algorithm, $key);
+    }
+
     public static function forVerification(string $algorithm, PublicKey $key): SignatureAlgorithmInterface
     {
         if (!in_array($algorithm, RSA::getSupportedAlgorithms(), true)) {
