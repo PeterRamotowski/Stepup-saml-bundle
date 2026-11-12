@@ -34,6 +34,19 @@ services:
             - null # keys
             - null # hosted identities that sign through the agent
 
+    surfnet_saml.private_key_agent.assertion_decrypter:
+        class: Surfnet\SamlBundle\SAML2\Response\AgentAssertionDecrypter
+        arguments:
+            - '@surfnet_saml.saml2.local_assertion_decrypter'
+            - !service_closure '@surfnet_saml.private_key_agent.key_map'
+            - '@logger'
+
+    surfnet_saml.private_key_agent.validate_command:
+        class: Surfnet\SamlBundle\PrivateKeyAgent\ValidateKeyMapCommand
+        arguments:
+            - !service_closure '@surfnet_saml.private_key_agent.key_map'
+        tags: ['console.command']
+
     surfnet_saml.private_key_agent.signature_key_name_resolver:
         class: SimpleSAML\XMLSecurity\Backend\PrivateKeyAgent\FingerprintKeyNameResolver
         factory: ['@surfnet_saml.private_key_agent.key_map', 'resolverFor']

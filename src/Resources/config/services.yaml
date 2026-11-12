@@ -125,13 +125,25 @@ services:
     SimpleSAML\SAML2\Certificate\PrivateKeyLoader:
         alias: surfnet_saml.saml2.privatekeyloader
 
+    surfnet_saml.saml2.local_assertion_decrypter:
+        class: Surfnet\SamlBundle\SAML2\Response\LocalAssertionDecrypter
+        arguments:
+            - '@surfnet_saml.saml2.privatekeyloader'
+
+    surfnet_saml.saml2.assertion_decrypter:
+        alias: surfnet_saml.saml2.local_assertion_decrypter
+
+    Surfnet\SamlBundle\SAML2\Response\AssertionDecrypter:
+        alias: surfnet_saml.saml2.assertion_decrypter
+
     surfnet_saml.saml2.response_processor:
         class: Surfnet\SamlBundle\SAML2\Response\ResponseProcessor
         arguments:
             - '@surfnet_saml.saml2.keyloader'
             - '@surfnet_saml.saml2.privatekeyloader'
             - '@logger'
-            - '@?surfnet_saml.private_key_agent.key_map'
+            - null # Legacy KeyMap constructor argument; use the decrypter service instead.
+            - '@surfnet_saml.saml2.assertion_decrypter'
 
     Surfnet\SamlBundle\SAML2\Response\ResponseProcessor:
         alias: surfnet_saml.saml2.response_processor

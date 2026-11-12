@@ -22,7 +22,6 @@ use RuntimeException;
 use SimpleSAML\XMLSecurity\Backend\PrivateKeyAgent\FingerprintKeyNameResolver;
 use SimpleSAML\XMLSecurity\Constants as C;
 use SimpleSAML\XMLSecurity\Key\X509Certificate;
-use Surfnet\SamlBundle\DependencyInjection\PrivateKeyAgentConfiguration;
 use Surfnet\SamlBundle\Exception\InvalidArgumentException;
 use Surfnet\SamlBundle\Exception\SamlInvalidConfigurationException;
 
@@ -38,16 +37,16 @@ final class KeyMap
      * @var array<string, array<string, string>> Key name by fingerprint, per operation
      */
     private array $keyNames = [
-        PrivateKeyAgentConfiguration::OPERATION_SIGN => [],
-        PrivateKeyAgentConfiguration::OPERATION_DECRYPT => [],
+        AgentOperation::SIGN => [],
+        AgentOperation::DECRYPT => [],
     ];
 
     /**
      * @var array<string, list<X509Certificate>> In configuration order, per operation
      */
     private array $certificates = [
-        PrivateKeyAgentConfiguration::OPERATION_SIGN => [],
-        PrivateKeyAgentConfiguration::OPERATION_DECRYPT => [],
+        AgentOperation::SIGN => [],
+        AgentOperation::DECRYPT => [],
     ];
 
     /**
@@ -82,7 +81,7 @@ final class KeyMap
 
         foreach ($signingIdentities as $path => $certificateFile) {
             $fingerprint = self::fingerprintOf(self::certificate($certificateFile, $path . '.public_key'));
-            if (!isset($this->keyNames[PrivateKeyAgentConfiguration::OPERATION_SIGN][$fingerprint])) {
+            if (!isset($this->keyNames[AgentOperation::SIGN][$fingerprint])) {
                 throw new SamlInvalidConfigurationException(sprintf(
                     '%s uses the private key agent, but no agent key with the "sign" operation has its '
                     . 'certificate (SHA-256 fingerprint %s).',

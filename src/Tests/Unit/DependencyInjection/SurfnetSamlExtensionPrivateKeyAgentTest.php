@@ -94,6 +94,26 @@ class SurfnetSamlExtensionPrivateKeyAgentTest extends TestCase
     }
 
     #[Test]
+    public function decryption_and_the_validate_command_follow_agent_enablement(): void
+    {
+        $local = $this->load([$this->hosted()]);
+        self::assertSame(
+            'surfnet_saml.saml2.local_assertion_decrypter',
+            (string) $local->getAlias('surfnet_saml.saml2.assertion_decrypter')
+        );
+        self::assertFalse($local->hasDefinition('surfnet_saml.private_key_agent.validate_command'));
+
+        $agent = $this->load([$this->hosted() + ['private_key_agent' => $this->agent()]]);
+        self::assertSame(
+            'surfnet_saml.private_key_agent.assertion_decrypter',
+            (string) $agent->getAlias('surfnet_saml.saml2.assertion_decrypter')
+        );
+        self::assertTrue(
+            $agent->getDefinition('surfnet_saml.private_key_agent.validate_command')->hasTag('console.command')
+        );
+    }
+
+    #[Test]
     public function an_agent_identity_gets_no_local_private_key(): void
     {
         $container = $this->load([$this->hosted(useAgent: true) + ['private_key_agent' => $this->agent()]]);

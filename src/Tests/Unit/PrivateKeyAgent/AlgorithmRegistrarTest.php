@@ -19,6 +19,7 @@
 namespace Surfnet\SamlBundle\Tests\Unit\PrivateKeyAgent;
 
 use ArrayObject;
+use Closure;
 use LogicException;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\Attributes\Test;
@@ -41,6 +42,7 @@ use SimpleSAML\XMLSecurity\Key\PrivateKey;
 use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use Surfnet\SamlBundle\PrivateKeyAgent\AlgorithmRegistrar;
 use Surfnet\SamlBundle\PrivateKeyAgent\ConfiguredTokenProvider;
+use TypeError;
 
 class AlgorithmRegistrarTest extends TestCase
 {
@@ -50,6 +52,8 @@ class AlgorithmRegistrarTest extends TestCase
      * @var ArrayObject<int, RequestInterface>
      */
     private ArrayObject $agentRequests;
+
+    private AlgorithmRegistrar $registrar;
 
     protected function setUp(): void
     {
@@ -73,7 +77,7 @@ class AlgorithmRegistrarTest extends TestCase
         $tokens = new ConfiguredTokenProvider(['test-key' => 'secret-token']);
         $resolver = new StaticKeyNameResolver('test-key');
 
-        (new AlgorithmRegistrar(
+        $this->registrar = new AlgorithmRegistrar(
             static fn () => new PrivateKeyAgentSignatureBackend(
                 $client,
                 $factory,
@@ -92,11 +96,13 @@ class AlgorithmRegistrarTest extends TestCase
             ),
             [C::SIG_RSA_SHA256],
             [C::KEY_TRANSPORT_OAEP_MGF1P],
-        ))->register();
+        );
+        $this->registrar->register();
     }
 
     protected function tearDown(): void
     {
+        AlgorithmRegistrar::reset();
         SignatureAlgorithmFactory::clearAlgorithmFactories();
         KeyTransportAlgorithmFactory::clearAlgorithmFactories();
     }
@@ -153,9 +159,7 @@ class AlgorithmRegistrarTest extends TestCase
     #[Test]
     public function local_crypto_works_even_when_agent_backend_construction_fails(): void
     {
-        $unavailable = static function (): never {
-            throw new LogicException('The agent backend cannot be constructed');
-        };
+        $unavailable = self::unavailableBackend();
         (new AlgorithmRegistrar($unavailable, $unavailable, [C::SIG_RSA_SHA256], [C::KEY_TRANSPORT_OAEP_MGF1P]))->register();
         $privateKey = PrivateKey::fromFile(self::KEYS . '/development_privatekey.pem');
         $publicKey = $this->certificate()->getPublicKey();
@@ -167,6 +171,55 @@ class AlgorithmRegistrarTest extends TestCase
         $ciphertext = $transport->getAlgorithm(C::KEY_TRANSPORT_OAEP_MGF1P, $publicKey)->encrypt('session key');
         self::assertSame('session key', $transport->getAlgorithm(C::KEY_TRANSPORT_OAEP_MGF1P, $privateKey)->decrypt($ciphertext));
         self::assertCount(0, $this->agentRequests);
+    }
+
+    #[Test]
+    public function an_older_registrar_cannot_unregister_a_newer_registration(): void
+    {
+        $newer = new AlgorithmRegistrar(self::unavailableBackend(), self::unavailableBackend(), [C::SIG_RSA_SHA256], []);
+        $newer->register();
+        $this->registrar->unregister();
+
+        try {
+            (new SignatureAlgorithmFactory())->getAlgorithm(C::SIG_RSA_SHA256, $this->certificate());
+            self::fail('The newer registration must still route certificates to its agent backend.');
+        } catch (LogicException $exception) {
+            self::assertSame('The agent backend cannot be constructed', $exception->getMessage());
+        }
+        $this->assertCertificateIsNotRoutedToTheAgent(
+            fn () => (new KeyTransportAlgorithmFactory())->getAlgorithm(C::KEY_TRANSPORT_OAEP_MGF1P, $this->certificate())
+        );
+    }
+
+    #[Test]
+    public function reset_removes_the_active_registration(): void
+    {
+        AlgorithmRegistrar::reset();
+
+        $this->assertCertificateIsNotRoutedToTheAgent(
+            fn () => (new SignatureAlgorithmFactory())->getAlgorithm(C::SIG_RSA_SHA256, $this->certificate())
+        );
+        $this->assertCertificateIsNotRoutedToTheAgent(
+            fn () => (new KeyTransportAlgorithmFactory())->getAlgorithm(C::KEY_TRANSPORT_OAEP_MGF1P, $this->certificate())
+        );
+    }
+
+    private function assertCertificateIsNotRoutedToTheAgent(Closure $getAlgorithm): void
+    {
+        try {
+            $getAlgorithm();
+            self::fail('A certificate must not get an algorithm once the agent registration is removed.');
+        } catch (TypeError) {
+            // The default RSA implementations only accept key material.
+            $this->addToAssertionCount(1);
+        }
+    }
+
+    private static function unavailableBackend(): Closure
+    {
+        return static function (): never {
+            throw new LogicException('The agent backend cannot be constructed');
+        };
     }
 
     private function certificate(): X509Certificate

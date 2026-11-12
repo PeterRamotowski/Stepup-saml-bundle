@@ -94,6 +94,10 @@ class SurfnetSamlExtension extends Extension
         }
 
         $loader->load('services_private_key_agent.yaml');
+        $container->setAlias('surfnet_saml.saml2.assertion_decrypter', 'surfnet_saml.private_key_agent.assertion_decrypter');
+        if (!class_exists('Symfony\Component\Console\Command\Command')) {
+            $container->removeDefinition('surfnet_saml.private_key_agent.validate_command');
+        }
 
         $container
             ->getDefinition('surfnet_saml.private_key_agent.symfony_http_client')

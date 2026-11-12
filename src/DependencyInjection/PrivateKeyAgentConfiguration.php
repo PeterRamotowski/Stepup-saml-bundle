@@ -20,6 +20,7 @@ namespace Surfnet\SamlBundle\DependencyInjection;
 
 use SimpleSAML\XMLSecurity\Backend\PrivateKeyAgent\KeyNameResolver;
 use SimpleSAML\XMLSecurity\Constants as C;
+use Surfnet\SamlBundle\PrivateKeyAgent\AgentOperation;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
@@ -33,8 +34,8 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
  */
 final class PrivateKeyAgentConfiguration implements ConfigurationInterface
 {
-    public const string OPERATION_SIGN = 'sign';
-    public const string OPERATION_DECRYPT = 'decrypt';
+    public const string OPERATION_SIGN = AgentOperation::SIGN;
+    public const string OPERATION_DECRYPT = AgentOperation::DECRYPT;
     public const string REQUIRED_SIGNATURE_ALGORITHM = C::SIG_RSA_SHA256;
 
     public const array SUPPORTED_SIGNATURE_ALGORITHMS = [
@@ -154,7 +155,7 @@ final class PrivateKeyAgentConfiguration implements ConfigurationInterface
                                 ->requiresAtLeastOneElement()
                                 ->scalarPrototype()
                                     ->validate()
-                                        ->ifNotInArray([self::OPERATION_SIGN, self::OPERATION_DECRYPT])
+                                        ->ifNotInArray([AgentOperation::SIGN, AgentOperation::DECRYPT])
                                         ->thenInvalid('Invalid operation %s; use "sign" or "decrypt"')
                                     ->end()
                                 ->end()

@@ -28,7 +28,6 @@ use SimpleSAML\SAML2\Assertion\Validation\SubjectConfirmationValidator;
 use SimpleSAML\SAML2\Certificate\KeyLoader;
 use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
 use SimpleSAML\SAML2\Certificate\X509;
-use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\Configuration\Destination;
 use SimpleSAML\SAML2\Response\Exception\InvalidResponseException;
 use SimpleSAML\SAML2\Response\Exception\InvalidSignatureException;
@@ -39,16 +38,7 @@ use SimpleSAML\SAML2\XML\saml\Assertion;
 use SimpleSAML\SAML2\XML\saml\EncryptedAssertion;
 use SimpleSAML\SAML2\XML\saml\EncryptedID;
 use SimpleSAML\SAML2\XML\samlp\Response;
-use SimpleSAML\XMLSecurity\Alg\KeyTransport\KeyTransportAlgorithmFactory;
-use SimpleSAML\XMLSecurity\Alg\KeyTransport\PrivateKeyAgentRSA as PrivateKeyAgentKeyTransport;
-use SimpleSAML\XMLSecurity\Exception\InvalidRequestException as AgentInvalidRequestException;
-use SimpleSAML\XMLSecurity\Key\PrivateKey;
-use SimpleSAML\XMLSecurity\Key\X509Certificate;
-use SimpleSAML\XMLSecurity\XML\ds\X509Certificate as X509CertificateElement;
-use SimpleSAML\XMLSecurity\XML\ds\X509Data;
 use SimpleSAML\XMLSecurity\XML\SignedElementInterface;
-use SimpleSAML\XMLSecurity\XML\xenc\EncryptedKey;
-use Surfnet\SamlBundle\DependencyInjection\PrivateKeyAgentConfiguration;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\PrivateKeyAgent\KeyMap;
@@ -56,7 +46,6 @@ use Surfnet\SamlBundle\SAML2\Response\Validation\SessionNotOnOrAfter;
 use Surfnet\SamlBundle\Signing\CertificateKeys;
 use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
 use Surfnet\SamlBundle\Signing\SignatureTransformGuard;
-use Throwable;
 
 /**
  * Turns a received SAML Response into the single, verified and validated assertion it carries.
@@ -69,12 +58,19 @@ use Throwable;
  */
 class ResponseProcessor
 {
+    private readonly AssertionDecrypter $assertionDecrypter;
+
     public function __construct(
         private readonly KeyLoader $keyLoader,
-        private readonly PrivateKeyLoader $privateKeyLoader,
+        PrivateKeyLoader $privateKeyLoader,
         private readonly LoggerInterface $logger,
-        private readonly ?KeyMap $keyMap = null,
+        ?KeyMap $keyMap = null,
+        ?AssertionDecrypter $assertionDecrypter = null,
     ) {
+        $localDecrypter = new LocalAssertionDecrypter($privateKeyLoader);
+        $this->assertionDecrypter = $assertionDecrypter ?? ($keyMap === null
+            ? $localDecrypter
+            : new AgentAssertionDecrypter($localDecrypter, static fn (): KeyMap => $keyMap, $logger));
     }
 
     /**
@@ -104,7 +100,7 @@ class ResponseProcessor
 
         $assertion = $assertions[0];
         if ($assertion instanceof EncryptedAssertion) {
-            $assertion = $this->decrypt($assertion, $serviceProvider, $identityProvider);
+            $assertion = $this->assertionDecrypter->decrypt($assertion, $serviceProvider, $identityProvider);
         }
 
         if ($assertion->isSigned()) {
@@ -161,144 +157,6 @@ class ResponseProcessor
             0,
             $lastException
         );
-    }
-
-    private function decrypt(
-        EncryptedAssertion $encryptedAssertion,
-        ServiceProvider $serviceProvider,
-        IdentityProvider $identityProvider,
-    ): Assertion {
-        // Only the single-recipient case is supported: xml-security 3.1.0 keeps just the first EncryptedKey of the
-        // KeyInfo, saml2 ignores EncryptedKeys next to the EncryptedData, and the key transport loop would call the
-        // backend once per key and abort on the first agent error. Count both places so nothing is skipped silently.
-        $encryptedKeys = array_merge(
-            array_values(array_filter(
-                $encryptedAssertion->getEncryptedData()->getKeyInfo()?->getInfo() ?? [],
-                static fn (object $info): bool => $info instanceof EncryptedKey
-            )),
-            $encryptedAssertion->getDecryptionKeys()
-        );
-        if (count($encryptedKeys) !== 1) {
-            throw new InvalidAssertionException(sprintf(
-                'Expected exactly one EncryptedKey in the EncryptedAssertion, found %d',
-                count($encryptedKeys)
-            ));
-        }
-        if ($encryptedAssertion->getDecryptionKeys() !== []) {
-            throw new InvalidAssertionException(
-                'An EncryptedKey outside the KeyInfo of the EncryptedData (RetrievalMethod layout) is not supported'
-            );
-        }
-
-        $algorithm = $encryptedKeys[0]->getEncryptionMethod()?->getAlgorithm()->getValue();
-        if ($algorithm === null) {
-            throw new InvalidAssertionException('The EncryptedKey has no EncryptionMethod');
-        }
-
-        $factory = new KeyTransportAlgorithmFactory(
-            ContainerSingleton::getInstance()->getBlacklistedEncryptionAlgorithms()
-                ?? KeyTransportAlgorithmFactory::DEFAULT_BLACKLIST
-        );
-
-        if ($serviceProvider->usesPrivateKeyAgent()) {
-            return $this->decryptWithAgent($encryptedAssertion, $encryptedKeys[0], $algorithm, $factory);
-        }
-
-        $lastException = null;
-        foreach ($this->privateKeyLoader->loadDecryptionKeys($identityProvider, $serviceProvider) as $key) {
-            if (!$key instanceof PrivateKey) {
-                throw new InvalidAssertionException('Only RSA key transport is supported for encrypted assertions');
-            }
-
-            try {
-                return $encryptedAssertion->decrypt($factory->getAlgorithm($algorithm, $key));
-            } catch (Exception $exception) {
-                $lastException = $exception;
-            }
-        }
-
-        throw new InvalidAssertionException('The assertion could not be decrypted', 0, $lastException);
-    }
-
-    /**
-     * Tries the agent decryption keys, limited to the certificate the EncryptedKey names if it names one.
-     *
-     * Only an agent answer that the key cannot decrypt (HTTP 400) moves on to the next key, which lets an old and
-     * a new key overlap during a rollover. Outages, rejected tokens and unauthorised keys end the attempt.
-     */
-    private function decryptWithAgent(
-        EncryptedAssertion $encryptedAssertion,
-        EncryptedKey $encryptedKey,
-        string $algorithm,
-        KeyTransportAlgorithmFactory $factory,
-    ): Assertion {
-        $certificates = $this->keyMap?->certificatesFor(PrivateKeyAgentConfiguration::OPERATION_DECRYPT) ?? [];
-        if ($certificates === []) {
-            throw new InvalidAssertionException('The service provider uses the private key agent, but no agent key may decrypt');
-        }
-
-        $named = self::namedCertificateFingerprints($encryptedKey);
-        if ($named !== []) {
-            $certificates = array_values(array_filter(
-                $certificates,
-                static fn (X509Certificate $certificate): bool => in_array(KeyMap::fingerprintOf($certificate), $named, true)
-            ));
-            if ($certificates === []) {
-                throw new InvalidAssertionException('The EncryptedKey names a certificate that no agent decryption key has');
-            }
-        }
-
-        $lastException = null;
-        foreach ($certificates as $certificate) {
-            try {
-                $decryptor = $factory->getAlgorithm($algorithm, $certificate);
-            } catch (Throwable $exception) {
-                throw new InvalidAssertionException(sprintf(
-                    'The private key agent could not initialize key transport for "%s"',
-                    $algorithm
-                ), 0, $exception);
-            }
-            if (!$decryptor instanceof PrivateKeyAgentKeyTransport) {
-                throw new InvalidAssertionException(sprintf('The private key agent is not registered for "%s"', $algorithm));
-            }
-
-            try {
-                return $encryptedAssertion->decrypt($decryptor);
-            } catch (AgentInvalidRequestException $exception) {
-                $this->logger->debug(sprintf(
-                    'The agent key for certificate %s could not decrypt the assertion',
-                    KeyMap::fingerprintOf($certificate)
-                ));
-                $lastException = $exception;
-            }
-        }
-
-        throw new InvalidAssertionException('The assertion could not be decrypted with any agent key', 0, $lastException);
-    }
-
-    /**
-     * @return list<string> SHA-256 fingerprints of the X509Certificates in the KeyInfo of the EncryptedKey
-     */
-    private static function namedCertificateFingerprints(EncryptedKey $encryptedKey): array
-    {
-        $fingerprints = [];
-        foreach ($encryptedKey->getKeyInfo()?->getInfo() ?? [] as $info) {
-            if (!$info instanceof X509Data) {
-                continue;
-            }
-            foreach ($info->getData() as $data) {
-                if (!$data instanceof X509CertificateElement) {
-                    continue;
-                }
-                $der = base64_decode(preg_replace('/\s+/', '', $data->getContent()->getValue()) ?? '', true);
-                if ($der === false || $der === '') {
-                    throw new InvalidAssertionException('The EncryptedKey names an invalid certificate');
-                }
-                $fingerprints[] = hash('sha256', $der);
-            }
-        }
-
-        return $fingerprints;
     }
 
     private function validate(

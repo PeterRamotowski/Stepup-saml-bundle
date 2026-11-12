@@ -38,8 +38,10 @@ use SimpleSAML\XMLSecurity\Key\KeyInterface;
  * The wrappers send operations with an X509Certificate key to the agent and keep local keys on OpenSSL, so
  * the routing follows from the key type and never from a failed agent call. The registration is process-wide.
  */
-final readonly class AlgorithmRegistrar
+final class AlgorithmRegistrar
 {
+    private static ?self $active = null;
+
     /**
      * @param Closure(): SignatureBackend $signatureBackend
      * @param Closure(): EncryptionBackend $encryptionBackend
@@ -47,15 +49,18 @@ final readonly class AlgorithmRegistrar
      * @param list<string> $keyTransportAlgorithms
      */
     public function __construct(
-        private Closure $signatureBackend,
-        private Closure $encryptionBackend,
-        private array $signatureAlgorithms,
-        private array $keyTransportAlgorithms,
+        private readonly Closure $signatureBackend,
+        private readonly Closure $encryptionBackend,
+        private readonly array $signatureAlgorithms,
+        private readonly array $keyTransportAlgorithms,
     ) {
     }
 
     public function register(): void
     {
+        self::reset();
+        self::$active = $this;
+
         $signatureBackend = $this->signatureBackend;
         foreach ($this->signatureAlgorithms as $algorithm) {
             SignatureAlgorithmFactory::registerAlgorithmFactory(
@@ -77,5 +82,27 @@ final readonly class AlgorithmRegistrar
                         : new PrivateKeyAgentKeyTransport($key, $algId, $encryptionBackend()),
             );
         }
+    }
+
+    public static function reset(): void
+    {
+        self::$active?->unregister();
+    }
+
+    public function unregister(): void
+    {
+        // A previous kernel must not remove registrations owned by a newer kernel.
+        if (self::$active !== $this) {
+            return;
+        }
+
+        foreach ($this->signatureAlgorithms as $algorithm) {
+            SignatureAlgorithmFactory::unregisterAlgorithmFactory($algorithm);
+        }
+        foreach ($this->keyTransportAlgorithms as $algorithm) {
+            KeyTransportAlgorithmFactory::unregisterAlgorithmFactory($algorithm);
+        }
+
+        self::$active = null;
     }
 }

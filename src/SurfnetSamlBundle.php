@@ -29,6 +29,8 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 
 class SurfnetSamlBundle extends AbstractBundle
 {
+    private ?AlgorithmRegistrar $algorithmRegistrar = null;
+
     public function boot(): void
     {
         parent::boot();
@@ -38,14 +40,22 @@ class SurfnetSamlBundle extends AbstractBundle
             ContainerSingleton::setContainer($bridgeContainer);
         }
 
+        AlgorithmRegistrar::reset();
         if ($this->container?->has('surfnet_saml.private_key_agent.algorithm_registrar')) {
-            // The key map validates the certificate mappings, so that a wrong mapping fails at boot.
-            $this->container->get('surfnet_saml.private_key_agent.key_map');
             $registrar = $this->container->get('surfnet_saml.private_key_agent.algorithm_registrar');
             if ($registrar instanceof AlgorithmRegistrar) {
                 $registrar->register();
+                $this->algorithmRegistrar = $registrar;
             }
         }
+    }
+
+    public function shutdown(): void
+    {
+        $this->algorithmRegistrar?->unregister();
+        $this->algorithmRegistrar = null;
+
+        parent::shutdown();
     }
 
     public function build(ContainerBuilder $container): void
