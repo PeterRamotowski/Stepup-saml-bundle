@@ -17,8 +17,7 @@ Developed as part of the [OpenConext-Stepup Gateway][2] and related OpenConext-S
 
 How to install with Symfony 6.4 or 7.4
  
-1. Require the bundle in the composer.json. Version 8 requires PHP 8.5 and `simplesamlphp/saml2` 7, which is only
-   available as a release candidate; allow it in your own `composer.json`, see [UPGRADING.md](UPGRADING.md):
+1. Require the bundle. Version 8 requires PHP 8.5 and the saml2 7 release candidate, see [UPGRADING.md](UPGRADING.md):
    ```sh
    composer require simplesamlphp/saml2:^7.0.0-rc4 surfnet/stepup-saml-bundle:^8.0
    ```
@@ -96,10 +95,8 @@ providers keep in mind that you need to assign `surfnet_saml.remote.service_prov
 ### Private Key Agent
 
 Hosted identities can let an [OpenConext Private Key Agent][3] perform their RSA private-key operations, so that the
-application never holds those private keys. The bundle then sends the AuthnRequest query signature, the metadata
-signature and the RSA key transport of encrypted assertions to the agent. Signature verification, the AES decryption
-of the assertion and everything else stay local. The agent is optional; without it the bundle uses the local
-`private_key` files as before.
+application never holds those private keys. The agent signs AuthnRequests and metadata, and decrypts the key of
+encrypted assertions; everything else stays local. Without it the bundle uses the local `private_key` files.
 
 ```yaml
 surfnet_saml:
@@ -134,33 +131,19 @@ surfnet_saml:
                 - 'http://www.w3.org/2009/xmlenc11#rsa-oaep'
 ```
 
-- `use_private_key_agent` exists for `service_provider`, `identity_provider` and `metadata`. The identity's
-  `public_key` must be the certificate file of an agent key with the `sign` operation.
-- `enabled` may use `%env(PKA_ENABLED)%` without a cast. Values such as `true`/`false`, `1`/`0`, `on`/`off`
-  and `yes`/`no` are converted to booleans; invalid boolean values are rejected. Symfony rejects env casts such as
-  `%env(bool:PKA_ENABLED)%` during extension compilation. Rebuild the container cache after changing the variable.
-  Hosted `use_private_key_agent` flags require literal booleans.
+- `use_private_key_agent` (a literal boolean) exists for `service_provider`, `identity_provider` and `metadata`.
+  Keys are matched by certificate fingerprint and only used for the operations they list.
+- `enabled` may use `%env(PKA_ENABLED)%` without a `bool:` cast; rebuild the container cache after changing it.
 - `algorithms.signature` must include RSA-SHA256 when a hosted identity signs through the agent.
-- Local-key operations do not initialize the agent backend or resolve its tokens and URL.
-- The bundle selects agent keys by certificate fingerprint. A key is only used for the operations it lists.
 - Keep tokens out of configuration files, for example with the `file:` environment variable processor as above.
-  Tokens are not included in exception messages.
-- The HTTP client verifies TLS peer and host names, follows no redirects and does not retry. Each signature or
-  decryption costs one agent request; an agent failure fails the operation with an xml-security
-  `PrivateKeyAgentExceptionInterface` exception and never falls back to a local key.
-- An encrypted assertion is decrypted with the agent keys that have the `decrypt` operation, in configuration order.
-  When the IdP names the certificate in the `EncryptedKey`, only that key is tried. Only an agent HTTP 400 (the
-  key cannot decrypt) moves on to the next key; any other failure ends decryption.
-- Rolling over the SP key: add the new agent key before the old one, both with `decrypt`, and point
-  `service_provider.public_key`, the certificate the SP metadata publishes, at the new certificate; the new key needs
-  `sign` as well. Remove the old key when all IdPs use the new metadata. A response for the old certificate costs one
-  extra agent request unless the IdP names the certificate.
-- `xmlenc11#rsa-oaep` without explicit `DigestMethod`/`MGF` parameters cannot be decrypted through the agent with
-  xml-security 3.1.0, which then asks the agent for SHA-256 instead of the SHA-1 default. Ask IdPs to use
-  `xmlenc#rsa-oaep-mgf1p` or explicit OAEP parameters.
-- The bundle checks the configuration when the container is compiled and reads all certificates when the kernel
-  boots, so missing `sign` mappings fail early. A service provider that uses the agent and receives encrypted
-  assertions needs at least one key with `decrypt`; without one, encrypted assertions are rejected at runtime.
+- Certificate files are loaded on first agent use, so they need not be mounted during cache warmup. Once mounted,
+  run `bin/console surfnet:saml:validate-private-key-agent` during deployment; it does not contact the agent.
+- Each signature or decryption is one agent request, without retries. An agent failure fails the operation and never
+  falls back to a local key.
+- A service provider that receives encrypted assertions needs at least one key with `decrypt`. These keys are tried
+  in configuration order, or only the one the IdP names in the `EncryptedKey`.
+- Rolling over the SP key: add the new key (with `sign` and `decrypt`) before the old one and point
+  `service_provider.public_key` at its certificate. Remove the old key when all IdPs use the new metadata.
 
 ## Example Usage
 
