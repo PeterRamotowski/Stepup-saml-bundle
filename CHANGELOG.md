@@ -21,6 +21,8 @@
   AuthnRequest, metadata and hosted IdP signing and for encrypted-assertion decryption, without local key fallback
 - Add `SAML2\Response\ResponseProcessor`, which replaces saml2's `Response\Processor`: verifies signatures with the
   algorithm blacklist, continues with the verified element and decrypts assertions with local or agent keys
+- Add `ResponseProcessor::processResponse()`, which returns the validated assertion together with the verified
+  Response envelope (`null` when the Response is unsigned) as `SAML2\Response\ProcessedResponse`
 - Add `SAML2\Response\AssertionValues` for the values of the removed flat saml2 assertion accessors
 - Add `AuthnRequest::buildUnsignedRequestQuery()` and `RedirectBinding::createUnsignedResponseFor()` for explicitly
   unsigned HTTP-Redirect AuthnRequests of requests created without a signer

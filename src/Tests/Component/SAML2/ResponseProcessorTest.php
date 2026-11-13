@@ -142,6 +142,35 @@ class ResponseProcessorTest extends TestCase
     }
 
     #[Test]
+    public function a_signed_response_is_returned_as_verified_together_with_its_assertion(): void
+    {
+        $received = $this->parse($this->signedResponse($this->response($this->encrypted($this->assertion()))));
+
+        $processed = $this->processor->processResponse($this->serviceProvider, $this->identityProvider, self::ACS, $received);
+
+        $verified = $processed->getVerifiedResponse();
+        $this->assertInstanceOf(Response::class, $verified);
+        $this->assertNotSame($received, $verified, 'The verified copy, not the received element, must be returned.');
+        $this->assertSame($received->getId()->getValue(), $verified->getId()->getValue());
+        $this->assertInstanceOf(EncryptedAssertion::class, $verified->getAssertions()[0]);
+        $this->assertSame('john-doe', AssertionValues::nameId($processed->getAssertion()));
+    }
+
+    #[Test]
+    public function an_unsigned_response_envelope_is_not_returned(): void
+    {
+        $processed = $this->processor->processResponse(
+            $this->serviceProvider,
+            $this->identityProvider,
+            self::ACS,
+            $this->parse($this->response($this->signedAssertion($this->assertion())))
+        );
+
+        $this->assertNull($processed->getVerifiedResponse());
+        $this->assertSame('john-doe', AssertionValues::nameId($processed->getAssertion()));
+    }
+
+    #[Test]
     public function an_entirely_unsigned_response_is_rejected(): void
     {
         $this->expectException(UnsignedResponseException::class);
@@ -594,12 +623,12 @@ class ResponseProcessorTest extends TestCase
 
     private function process(string $responseXml): Assertion
     {
-        return $this->processor->process(
-            $this->serviceProvider,
-            $this->identityProvider,
-            self::ACS,
-            Response::fromXML(DOMDocumentFactory::fromString($responseXml)->documentElement)
-        );
+        return $this->processor->process($this->serviceProvider, $this->identityProvider, self::ACS, $this->parse($responseXml));
+    }
+
+    private function parse(string $responseXml): Response
+    {
+        return Response::fromXML(DOMDocumentFactory::fromString($responseXml)->documentElement);
     }
 
     private function assertion(

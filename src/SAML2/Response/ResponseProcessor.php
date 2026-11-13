@@ -83,6 +83,21 @@ class ResponseProcessor
         string $destination,
         Response $response,
     ): Assertion {
+        return $this->processResponse($serviceProvider, $identityProvider, $destination, $response)->getAssertion();
+    }
+
+    /**
+     * Like process(), but also returns the Response envelope when its signature was verified.
+     *
+     * @throws PreconditionNotMetException when the Response is not a success or not addressed to this SP
+     * @throws InvalidResponseException when it cannot be trusted or does not carry exactly one valid assertion
+     */
+    public function processResponse(
+        ServiceProvider $serviceProvider,
+        IdentityProvider $identityProvider,
+        string $destination,
+        Response $response,
+    ): ProcessedResponse {
         $result = (new PreconditionValidator(new Destination($destination)))->validate($response);
         if (!$result->isValid()) {
             throw PreconditionNotMetException::createFromValidationResult($result);
@@ -111,7 +126,7 @@ class ResponseProcessor
 
         $this->validate($assertion, $serviceProvider, $identityProvider, $destination, $response);
 
-        return $assertion;
+        return new ProcessedResponse($responseIsSigned ? $response : null, $assertion);
     }
 
     /**

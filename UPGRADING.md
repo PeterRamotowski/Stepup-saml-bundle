@@ -57,6 +57,9 @@ Use `Surfnet\SamlBundle\SAML2\Response\AssertionValues` for the values the 7.x a
 
 - If you construct `PostBinding` yourself, inject `surfnet_saml.saml2.response_processor` instead of saml2's
   `Processor`. `ResponseProcessor::process()` takes the destination as a string and returns the assertion.
+- `ResponseProcessor::processResponse()` returns a `ProcessedResponse` with the same assertion and, when the Response
+  was signed, the verified Response envelope (`null` otherwise). Read envelope fields from that verified copy, never
+  from the Response you passed in.
 - Either the Response or the Assertion must be signed by the IdP (`UnsignedResponseException` otherwise).
 - RSA-SHA1, RSA-PSS-SHA1, HMAC-SHA1, RSA v1.5 key transport and 3DES are rejected. To accept one of them for a
   legacy IdP, pass your own list to `BridgeContainer::setBlacklistedAlgorithms()`.
