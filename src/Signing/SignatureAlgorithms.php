@@ -33,7 +33,7 @@ use SimpleSAML\XMLSecurity\Key\PublicKey;
 final class SignatureAlgorithms
 {
     /**
-     * RSA PKCS#1 v1.5 with SHA-256/384/512: the outbound signature methods.
+     * RSA PKCS#1 v1.5 with SHA-256/384/512: the outbound signature methods and the HTTP-Redirect verification methods.
      */
     private const array RSA_SHA2 = [C::SIG_RSA_SHA256, C::SIG_RSA_SHA384, C::SIG_RSA_SHA512];
 
@@ -51,15 +51,20 @@ final class SignatureAlgorithms
         return self::factory()->getAlgorithm($algorithm, $key);
     }
 
+    /**
+     * The check RedirectBinding applies before verification; it matches forRedirectVerification() exactly.
+     */
     public static function supportsRedirectVerification(string $algorithm): bool
     {
-        return $algorithm === C::SIG_RSA_SHA256;
+        return self::isAllowedRsaSha2($algorithm);
     }
 
     public static function forRedirectVerification(string $algorithm, PublicKey $key): SignatureAlgorithmInterface
     {
         if (!self::supportsRedirectVerification($algorithm)) {
-            throw new UnsupportedAlgorithmException(sprintf('Unsupported Redirect signature algorithm "%s"', $algorithm));
+            throw new UnsupportedAlgorithmException(
+                sprintf('Unsupported or blacklisted Redirect signature algorithm "%s"', $algorithm)
+            );
         }
 
         return self::forVerification($algorithm, $key);

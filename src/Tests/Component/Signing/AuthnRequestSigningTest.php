@@ -32,6 +32,7 @@ use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
 use SimpleSAML\XMLSecurity\Constants as C;
 use SimpleSAML\XMLSecurity\CryptoEncoding\PEM;
+use SimpleSAML\XMLSecurity\Exception\UnsupportedAlgorithmException;
 use SimpleSAML\XMLSecurity\Key\PrivateKey;
 use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
@@ -237,6 +238,61 @@ AUTHNREQUEST_NO_SUBJECT;
         );
     }
 
+    public static function redirectAlgorithms(): iterable
+    {
+        yield 'RSA-SHA256' => [C::SIG_RSA_SHA256];
+        yield 'RSA-SHA384' => [C::SIG_RSA_SHA384];
+        yield 'RSA-SHA512' => [C::SIG_RSA_SHA512];
+    }
+
+    #[Test]
+    #[DataProvider('redirectAlgorithms')]
+    public function redirect_signatures_are_verified_with_every_supported_rsa_sha2_algorithm(string $algorithm): void
+    {
+        $verifier = new SignatureVerifier(new KeyLoader(), new NullLogger());
+        $certificate = X509::createFromCertificateData($this->getPublicKey());
+        $query = $this->signedQueryString($algorithm);
+        $legacy = $this->createSignedAuthnRequest(
+            $this->encodeDataToSignWithPhpsHttpBuildQuery(...),
+            declaredAlgorithm: $algorithm,
+            signingAlgorithm: $algorithm
+        );
+
+        $this->assertTrue($verifier->verifySignatureAlgorithmSupported($query));
+        $this->assertTrue($verifier->isRequestSignedWith($query, $certificate));
+        $this->assertTrue($verifier->isSignedWith($legacy, $certificate));
+    }
+
+    public static function rejectedRedirectAlgorithms(): iterable
+    {
+        yield 'blacklisted RSA-SHA1' => [C::SIG_RSA_SHA1, null];
+        yield 'RSA-SHA224' => [C::SIG_RSA_SHA224, null];
+        yield 'RSA-PSS' => [C::SIG_RSA_PSS_SHA256, null];
+        yield 'RSA-SHA384 on the configured blacklist' => [C::SIG_RSA_SHA384, [C::SIG_RSA_SHA384]];
+    }
+
+    #[Test]
+    #[DataProvider('rejectedRedirectAlgorithms')]
+    public function redirect_signatures_with_other_or_blacklisted_algorithms_are_rejected_by_check_and_verifier(
+        string $algorithm,
+        ?array $blacklist,
+    ): void {
+        if ($blacklist !== null) {
+            ContainerSingleton::getInstance()->setBlacklistedAlgorithms($blacklist);
+        }
+        $verifier = new SignatureVerifier(new KeyLoader(), new NullLogger());
+        $query = $this->signedQueryString($algorithm);
+        $certificate = X509::createFromCertificateData($this->getPublicKey());
+
+        $this->assertFalse($verifier->verifySignatureAlgorithmSupported($query));
+        $this->assertFalse($verifier->isSignedWith(
+            $this->createSignedAuthnRequest($this->encodeDataToSignWithPhpsHttpBuildQuery(...), declaredAlgorithm: $algorithm),
+            $certificate
+        ));
+        $this->expectException(UnsupportedAlgorithmException::class);
+        $verifier->isRequestSignedWith($query, $certificate);
+    }
+
     #[Test]
     public function deprecated_verification_does_not_ignore_the_declared_algorithm(): void
     {
@@ -327,9 +383,10 @@ AUTHNREQUEST_NO_SUBJECT;
         ?string $customSignature = null,
         string $declaredAlgorithm = C::SIG_RSA_SHA256,
         ?string $relayState = null,
+        string $signingAlgorithm = C::SIG_RSA_SHA256,
     ): AuthnRequest {
         $keyData    = file_get_contents(__DIR__.'/../../../Resources/keys/development_privatekey.pem');
-        $privateKey = self::createSigner($keyData);
+        $privateKey = self::createSigner($keyData, $signingAlgorithm);
 
         $domDocument          = DOMDocumentFactory::fromString($this->authRequestNoSubject);
         $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->documentElement);
@@ -376,11 +433,29 @@ AUTHNREQUEST_NO_SUBJECT;
         return base64_encode(gzdeflate($requestAsXml));
     }
 
-    private static function createSigner(string $privateKeyPem): SignatureAlgorithmInterface
+    private static function createSigner(string $privateKeyPem, string $algorithm = C::SIG_RSA_SHA256): SignatureAlgorithmInterface
     {
         return (new SignatureAlgorithmFactory())->getAlgorithm(
-            C::SIG_RSA_SHA256,
+            $algorithm,
             new PrivateKey(PEM::fromString($privateKeyPem))
         );
+    }
+
+    /**
+     * A query string declaring the algorithm; signed with it when the default factory can, with RSA-SHA256 otherwise.
+     */
+    private function signedQueryString(string $algorithm): ReceivedAuthnRequestQueryString
+    {
+        $keyData = (string) file_get_contents(__DIR__ . '/../../../Resources/keys/development_privatekey.pem');
+        $signer = self::createSigner($keyData, in_array($algorithm, [C::SIG_RSA_SHA384, C::SIG_RSA_SHA512], true) ? $algorithm : C::SIG_RSA_SHA256);
+        $parameters = [
+            ReceivedAuthnRequestQueryString::PARAMETER_REQUEST => $this->createEncodedSamlRequest(),
+            ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE_ALGORITHM => $algorithm,
+        ];
+        $parameters[ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE] = base64_encode(
+            (string) $signer->sign(http_build_query($parameters))
+        );
+
+        return ReceivedAuthnRequestQueryString::parse(http_build_query($parameters));
     }
 }

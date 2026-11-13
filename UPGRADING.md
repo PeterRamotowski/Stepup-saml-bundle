@@ -76,8 +76,9 @@ Use `Surfnet\SamlBundle\SAML2\Response\AssertionValues` for the values the 7.x a
 - `ReceivedAuthnRequest::verify()` no longer changes the request; `verifiedWith()` returns the verified copy, or
   `null` when unsigned. After `ReceivedAuthnRequestPost::verify()`, call `getAuthnRequest()` again; earlier
   references remain unverified. `PostBinding::receiveSignedAuthnRequestFrom()` already returns the verified request.
-- HTTP-Redirect signatures accept RSA-SHA256 only. HTTP-POST signatures accept RSA-SHA256/384/512, trying the
-  configured SP certificates in order to support rollover.
+- HTTP-Redirect signatures accept RSA-SHA256/384/512 unless blacklisted; `SignatureVerifier::verifySignatureAlgorithmSupported()`
+  and verification apply the same rule. HTTP-POST signatures accept RSA-SHA256/384/512, trying the configured SP
+  certificates in order to support rollover.
 - Deprecated `AuthnRequest::createSigned()` rebuilds the signed query; migrate to
   `ReceivedAuthnRequestQueryString::parse()` and `RedirectBinding`, which preserve the signed bytes.
 - Saml2 7 rejects `NameIDPolicy` with the transient format and `AllowCreate="true"`. Redirect requests are
