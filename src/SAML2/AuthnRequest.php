@@ -170,17 +170,40 @@ class AuthnRequest
         return $this->signatureAlgorithm;
     }
 
+    /**
+     * The signed HTTP-Redirect query; requires the signer passed to createNew().
+     */
     public function buildRequestQuery(): string
     {
-        $requestAsXml = $this->getUnsignedXML();
-        $encodedRequest = base64_encode(gzdeflate($requestAsXml));
-        $queryParams = [self::PARAMETER_REQUEST => $encodedRequest];
+        return $this->signRequestQuery($this->buildQueryParameters());
+    }
+
+    /**
+     * The HTTP-Redirect query of a request created without a signer: SAMLRequest and optional RelayState only.
+     *
+     * A request created with a signer is never encoded unsigned, so a signing failure cannot fall back to this path.
+     */
+    public function buildUnsignedRequestQuery(): string
+    {
+        if ($this->signer instanceof SignatureAlgorithmInterface) {
+            throw new RuntimeException('Cannot build an unsigned request query: the request was created with a signer');
+        }
+
+        return http_build_query($this->buildQueryParameters());
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function buildQueryParameters(): array
+    {
+        $queryParams = [self::PARAMETER_REQUEST => base64_encode(gzdeflate($this->getUnsignedXML()))];
 
         if ($this->relayState !== null) {
             $queryParams[self::PARAMETER_RELAY_STATE] = $this->relayState;
         }
 
-        return $this->signRequestQuery($queryParams);
+        return $queryParams;
     }
 
     public function getSignedRequestQuery(): string

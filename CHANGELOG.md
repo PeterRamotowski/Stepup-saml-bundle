@@ -22,6 +22,8 @@
 - Add `SAML2\Response\ResponseProcessor`, which replaces saml2's `Response\Processor`: verifies signatures with the
   algorithm blacklist, continues with the verified element and decrypts assertions with local or agent keys
 - Add `SAML2\Response\AssertionValues` for the values of the removed flat saml2 assertion accessors
+- Add `AuthnRequest::buildUnsignedRequestQuery()` and `RedirectBinding::createUnsignedResponseFor()` for explicitly
+  unsigned HTTP-Redirect AuthnRequests of requests created without a signer
 - Verify HTTP-Redirect AuthnRequest signatures with RSA-SHA384 and RSA-SHA512 as well as RSA-SHA256; the support check
   and the verifier both reject other and blacklisted algorithms
 - Add `Signing\Signers` to select the signer of a hosted entity; every entry point takes an optional RSA-SHA256/384/512

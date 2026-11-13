@@ -151,9 +151,20 @@ class RedirectBinding implements HttpBinding
         return $request->server->get('REQUEST_URI');
     }
 
+    /**
+     * Redirects with a signed AuthnRequest; requires a request created with a signer.
+     */
     public function createResponseFor(AuthnRequest $request): RedirectResponse
     {
         return new RedirectResponse($request->getDestination() . '?' . $request->buildRequestQuery());
+    }
+
+    /**
+     * Redirects with an unsigned AuthnRequest; requires a request created without a signer.
+     */
+    public function createUnsignedResponseFor(AuthnRequest $request): RedirectResponse
+    {
+        return new RedirectResponse($request->getDestination() . '?' . $request->buildUnsignedRequestQuery());
     }
 
     public function getAuthnRequestQueryString(Request $request): ReceivedAuthnRequestQueryString

@@ -30,6 +30,7 @@ use SimpleSAML\SAML2\Certificate\PrivateKeyLoader;
 use SimpleSAML\SAML2\Compat\ContainerSingleton;
 use SimpleSAML\SAML2\Configuration\PrivateKey as PrivateKeyConfiguration;
 use SimpleSAML\SAML2\XML\md\EntityDescriptor;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
 use SimpleSAML\XML\DOMDocumentFactory;
 use SimpleSAML\XMLSecurity\Alg\Signature\RSA;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
@@ -42,13 +43,16 @@ use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Exception\RuntimeException;
+use Surfnet\SamlBundle\Http\RedirectBinding;
 use Surfnet\SamlBundle\Metadata\MetadataConfiguration;
 use Surfnet\SamlBundle\Metadata\MetadataFactory;
 use Surfnet\SamlBundle\PrivateKeyAgent\KeyMap;
+use Surfnet\SamlBundle\SAML2\AuthnRequest;
 use Surfnet\SamlBundle\SAML2\AuthnRequestFactory;
 use Surfnet\SamlBundle\SAML2\BridgeContainer;
 use Surfnet\SamlBundle\Service\SigningService;
 use Surfnet\SamlBundle\Signing\KeyPair;
+use Surfnet\SamlBundle\Signing\SignatureVerifier;
 use Surfnet\SamlBundle\Signing\Signers;
 use Surfnet\SamlBundle\Tests\FakePrivateKeyAgent;
 use Symfony\Component\Clock\MockClock;
@@ -120,6 +124,61 @@ class AgentSigningTest extends TestCase
         }
 
         self::assertSame(['/v1/sign/sp-signing'], $this->agent->requests);
+    }
+
+    #[Test]
+    public function an_unsigned_redirect_carries_only_the_request_and_relay_state_and_never_calls_the_agent(): void
+    {
+        $signed = AuthnRequestFactory::createNewRequest($this->serviceProvider(true), $this->identityProvider(), false, 'state');
+        $unsigned = AuthnRequest::createNew(
+            SAML2AuthnRequest::fromXML(DOMDocumentFactory::fromString($signed->getUnsignedXML())->documentElement),
+            null,
+            'state'
+        );
+
+        $location = (new RedirectBinding(m::mock(SignatureVerifier::class)))->createUnsignedResponseFor($unsigned)->getTargetUrl();
+
+        [$destination, $query] = explode('?', $location, 2);
+        parse_str($query, $parameters);
+        self::assertSame('https://idp.example.com/sso', $destination);
+        self::assertSame([AuthnRequest::PARAMETER_REQUEST, AuthnRequest::PARAMETER_RELAY_STATE], array_keys($parameters));
+        self::assertSame($signed->getUnsignedXML(), gzinflate(base64_decode($parameters[AuthnRequest::PARAMETER_REQUEST], true)));
+        self::assertSame('state', $parameters[AuthnRequest::PARAMETER_RELAY_STATE]);
+        self::assertSame([], $this->agent->requests);
+    }
+
+    #[Test]
+    public function a_failed_agent_signature_never_falls_back_to_an_unsigned_redirect(): void
+    {
+        $this->agent->status = 503;
+        $authnRequest = AuthnRequestFactory::createNewRequest($this->serviceProvider(true), $this->identityProvider());
+
+        try {
+            $authnRequest->buildRequestQuery();
+            self::fail('An unavailable agent must fail the signature.');
+        } catch (AgentUnavailableException) {
+        }
+
+        try {
+            $authnRequest->buildUnsignedRequestQuery();
+            self::fail('A request created with a signer must not be encoded unsigned.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('created with a signer', $exception->getMessage());
+        }
+        self::assertSame(['/v1/sign/sp-signing'], $this->agent->requests);
+    }
+
+    #[Test]
+    public function a_signed_redirect_still_requires_a_signer(): void
+    {
+        $unsigned = AuthnRequest::createNew(SAML2AuthnRequest::fromXML(DOMDocumentFactory::fromString(
+            AuthnRequestFactory::createNewRequest($this->serviceProvider(false), $this->identityProvider())->getUnsignedXML()
+        )->documentElement));
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('no signer was provided');
+
+        (new RedirectBinding(m::mock(SignatureVerifier::class)))->createResponseFor($unsigned);
     }
 
     #[Test]

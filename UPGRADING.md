@@ -71,6 +71,10 @@ Use `Surfnet\SamlBundle\SAML2\Response\AssertionValues` for the values the 7.x a
 
 - `AuthnRequest::createNew(SAML2AuthnRequest $request, ?SignatureAlgorithmInterface $signer = null, ?string $relayState = null)`
   takes the signer and relay state, which saml2 7 messages no longer carry.
+- `buildRequestQuery()` and `RedirectBinding::createResponseFor()` always sign and require that signer. To send a
+  request unsigned, create it without a signer and use `buildUnsignedRequestQuery()` or
+  `RedirectBinding::createUnsignedResponseFor()`; they emit only `SAMLRequest` and `RelayState` and refuse a request
+  created with a signer, so a signing failure cannot fall back to an unsigned request.
 - The `verify()` methods of `SignatureVerifiable`, `ReceivedAuthnRequestQueryString` and `ReceivedAuthnRequestPost`
   take a `SimpleSAML\XMLSecurity\Key\PublicKey`.
 - `ReceivedAuthnRequest::verify()` no longer changes the request; `verifiedWith()` returns the verified copy, or
