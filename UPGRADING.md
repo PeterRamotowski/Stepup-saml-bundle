@@ -101,6 +101,9 @@ Use `Surfnet\SamlBundle\SAML2\Response\AssertionValues` for the values the 7.x a
 - Signed metadata gets a generated `ID` on its root element when the template has none.
 - Applications with a hosted IdP should sign their responses with `Surfnet\SamlBundle\Signing\Signers::forHostedEntity()`,
   so that agent identities sign through the agent.
+- Every `Signers` entry point signs with RSA-SHA256 unless you pass RSA-SHA384 or RSA-SHA512 as the optional last
+  argument. Other or blacklisted algorithms throw `UnsupportedAlgorithmException` and are never replaced; check them
+  in advance with `Signers::supports()`. Agent identities need the algorithm in `algorithms.signature`.
 
 ## Private Key Agent (optional)
 

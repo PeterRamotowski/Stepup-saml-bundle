@@ -24,6 +24,7 @@ use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
 use SimpleSAML\XMLSecurity\Constants as C;
 use SimpleSAML\XMLSecurity\Exception\UnsupportedAlgorithmException;
+use SimpleSAML\XMLSecurity\Key\KeyInterface;
 use SimpleSAML\XMLSecurity\Key\PublicKey;
 
 /**
@@ -31,6 +32,25 @@ use SimpleSAML\XMLSecurity\Key\PublicKey;
  */
 final class SignatureAlgorithms
 {
+    /**
+     * RSA PKCS#1 v1.5 with SHA-256/384/512: the outbound signature methods.
+     */
+    private const array RSA_SHA2 = [C::SIG_RSA_SHA256, C::SIG_RSA_SHA384, C::SIG_RSA_SHA512];
+
+    public static function supportsSigning(string $algorithm): bool
+    {
+        return self::isAllowedRsaSha2($algorithm);
+    }
+
+    public static function forSigning(string $algorithm, KeyInterface $key): SignatureAlgorithmInterface
+    {
+        if (!self::supportsSigning($algorithm)) {
+            throw new UnsupportedAlgorithmException(sprintf('Unsupported or blacklisted signing algorithm "%s"', $algorithm));
+        }
+
+        return self::factory()->getAlgorithm($algorithm, $key);
+    }
+
     public static function supportsRedirectVerification(string $algorithm): bool
     {
         return $algorithm === C::SIG_RSA_SHA256;
@@ -59,9 +79,20 @@ final class SignatureAlgorithms
      */
     public static function factory(): SignatureAlgorithmFactory
     {
-        return new SignatureAlgorithmFactory(
-            ContainerSingleton::getInstance()->getBlacklistedEncryptionAlgorithms()
-                ?? SignatureAlgorithmFactory::DEFAULT_BLACKLIST
-        );
+        return new SignatureAlgorithmFactory(self::blacklist());
+    }
+
+    private static function isAllowedRsaSha2(string $algorithm): bool
+    {
+        return in_array($algorithm, self::RSA_SHA2, true) && !in_array($algorithm, self::blacklist(), true);
+    }
+
+    /**
+     * @return string[]
+     */
+    private static function blacklist(): array
+    {
+        return ContainerSingleton::getInstance()->getBlacklistedEncryptionAlgorithms()
+            ?? SignatureAlgorithmFactory::DEFAULT_BLACKLIST;
     }
 }

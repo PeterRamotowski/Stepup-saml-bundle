@@ -33,8 +33,11 @@ use SimpleSAML\SAML2\XML\md\EntityDescriptor;
 use SimpleSAML\XML\DOMDocumentFactory;
 use SimpleSAML\XMLSecurity\Alg\Signature\RSA;
 use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
 use SimpleSAML\XMLSecurity\Constants as C;
 use SimpleSAML\XMLSecurity\Exception\AgentUnavailableException;
+use SimpleSAML\XMLSecurity\Exception\UnsupportedAlgorithmException;
+use SimpleSAML\XMLSecurity\Key\PrivateKey;
 use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
@@ -169,9 +172,95 @@ class AgentSigningTest extends TestCase
         FakePrivateKeyAgent::unregister();
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('The private key agent is not registered for RSA-SHA256 signatures');
+        $this->expectExceptionMessage(sprintf('The private key agent is not registered for "%s" signatures', C::SIG_RSA_SHA256));
 
         Signers::forHostedEntity($this->serviceProvider(true));
+    }
+
+    /**
+     * @return iterable<string, array{Closure(string): SignatureAlgorithmInterface, bool}> Creates a signer for an algorithm; whether it uses the agent
+     */
+    public static function signerEntryPoints(): iterable
+    {
+        $keyPair = static function (bool $useAgent): KeyPair {
+            $keyPair = new KeyPair();
+            $keyPair->publicKeyFile = self::CERTIFICATE;
+            $keyPair->privateKeyFile = $useAgent ? '/nonexistent/private-key.pem' : self::KEYS . '/development_privatekey.pem';
+            $keyPair->usePrivateKeyAgent = $useAgent;
+
+            return $keyPair;
+        };
+        $hostedEntity = static fn (bool $useAgent): IdentityProvider => new IdentityProvider([
+            'entityId' => 'https://idp.example.com/metadata',
+            'certificateFile' => self::CERTIFICATE,
+            'privateKeys' => $useAgent
+                ? []
+                : [new PrivateKeyConfiguration(self::KEYS . '/development_privatekey.pem', PrivateKeyConfiguration::NAME_DEFAULT)],
+            'privateKeyAgent' => $useAgent,
+        ]);
+
+        yield 'agent hosted entity' => [static fn (string $algorithm): SignatureAlgorithmInterface => Signers::forHostedEntity($hostedEntity(true), $algorithm), true];
+        yield 'local hosted entity' => [static fn (string $algorithm): SignatureAlgorithmInterface => Signers::forHostedEntity($hostedEntity(false), $algorithm), false];
+        yield 'agent key pair' => [static fn (string $algorithm): SignatureAlgorithmInterface => Signers::forKeyPair($keyPair(true), null, $algorithm), true];
+        yield 'local key pair' => [static fn (string $algorithm): SignatureAlgorithmInterface => Signers::forKeyPair($keyPair(false), null, $algorithm), false];
+        yield 'private key' => [
+            static fn (string $algorithm): SignatureAlgorithmInterface => Signers::forPrivateKey(
+                new PrivateKeyConfiguration(self::KEYS . '/development_privatekey.pem', PrivateKeyConfiguration::NAME_DEFAULT),
+                null,
+                $algorithm
+            ),
+            false,
+        ];
+        yield 'local key' => [
+            static fn (string $algorithm): SignatureAlgorithmInterface => Signers::forLocalKey(PrivateKey::fromFile(self::KEYS . '/development_privatekey.pem'), $algorithm),
+            false,
+        ];
+        yield 'agent certificate' => [static fn (string $algorithm): SignatureAlgorithmInterface => Signers::forAgentCertificate(self::CERTIFICATE, $algorithm), true];
+    }
+
+    #[Test]
+    #[DataProvider('signerEntryPoints')]
+    public function every_entry_point_signs_with_the_requested_rsa_sha2_algorithm(Closure $createSigner, bool $usesAgent): void
+    {
+        foreach ([C::SIG_RSA_SHA384, C::SIG_RSA_SHA512] as $algorithm) {
+            $signer = $createSigner($algorithm);
+
+            self::assertSame($algorithm, $signer->getAlgorithmId());
+            self::assertTrue($this->verify('data', $signer->sign('data'), $algorithm));
+        }
+
+        self::assertSame($usesAgent ? ['/v1/sign/sp-signing', '/v1/sign/sp-signing'] : [], $this->agent->requests);
+    }
+
+    #[Test]
+    #[DataProvider('signerEntryPoints')]
+    public function every_entry_point_rejects_unsupported_and_blacklisted_algorithms(Closure $createSigner): void
+    {
+        ContainerSingleton::getInstance()->setBlacklistedAlgorithms([C::SIG_RSA_SHA384]);
+
+        foreach ([C::SIG_RSA_SHA1, C::SIG_RSA_PSS_SHA256, C::SIG_HMAC_SHA256, C::SIG_RSA_SHA384] as $algorithm) {
+            self::assertFalse(Signers::supports($algorithm));
+            try {
+                $createSigner($algorithm);
+                self::fail(sprintf('"%s" must not produce a signer.', $algorithm));
+            } catch (UnsupportedAlgorithmException $exception) {
+                self::assertStringContainsString($algorithm, $exception->getMessage());
+            }
+        }
+
+        self::assertTrue(Signers::supports(C::SIG_RSA_SHA512));
+        self::assertSame([], $this->agent->requests);
+    }
+
+    #[Test]
+    public function an_agent_identity_names_an_algorithm_the_agent_is_not_registered_for(): void
+    {
+        FakePrivateKeyAgent::unregister();
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(sprintf('The private key agent is not registered for "%s" signatures', C::SIG_RSA_SHA512));
+
+        Signers::forAgentCertificate(self::CERTIFICATE, C::SIG_RSA_SHA512);
     }
 
     public static function agentIdentitiesWithoutCertificate(): iterable
@@ -228,9 +317,9 @@ class AgentSigningTest extends TestCase
         ]);
     }
 
-    private function verify(string $data, string|false $signature): bool
+    private function verify(string $data, string|false $signature, string $algorithm = C::SIG_RSA_SHA256): bool
     {
         return $signature !== false
-            && (new RSA(X509Certificate::fromFile(self::CERTIFICATE)->getPublicKey(), C::SIG_RSA_SHA256))->verify($data, $signature);
+            && (new RSA(X509Certificate::fromFile(self::CERTIFICATE)->getPublicKey(), $algorithm))->verify($data, $signature);
     }
 }

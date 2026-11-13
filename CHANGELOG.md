@@ -22,7 +22,8 @@
 - Add `SAML2\Response\ResponseProcessor`, which replaces saml2's `Response\Processor`: verifies signatures with the
   algorithm blacklist, continues with the verified element and decrypts assertions with local or agent keys
 - Add `SAML2\Response\AssertionValues` for the values of the removed flat saml2 assertion accessors
-- Add `Signing\Signers` to select the signer of a hosted entity
+- Add `Signing\Signers` to select the signer of a hosted entity; every entry point takes an optional RSA-SHA256/384/512
+  algorithm (default RSA-SHA256), and `Signers::supports()` reports whether the blacklist allows one
 - Fix the saml2 container's algorithm blacklist, whose nested default never matched. RSA-SHA1, RSA-PSS-SHA1,
   HMAC-SHA1, RSA v1.5 key transport and 3DES content encryption are now rejected
 - Initialise the saml2 container for console commands too, when Symfony Console is installed

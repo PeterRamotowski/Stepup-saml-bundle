@@ -134,7 +134,8 @@ surfnet_saml:
 - `use_private_key_agent` (a literal boolean) exists for `service_provider`, `identity_provider` and `metadata`.
   Keys are matched by certificate fingerprint and only used for the operations they list.
 - `enabled` may use `%env(PKA_ENABLED)%` without a `bool:` cast; rebuild the container cache after changing it.
-- `algorithms.signature` must include RSA-SHA256 when a hosted identity signs through the agent.
+- `algorithms.signature` must include RSA-SHA256 when a hosted identity signs through the agent, and every other
+  algorithm passed to `Signing\Signers` for an agent identity.
 - Keep tokens out of configuration files, for example with the `file:` environment variable processor as above.
 - Certificate files are loaded on first agent use, so they need not be mounted during cache warmup. Once mounted,
   run `bin/console surfnet:saml:validate-private-key-agent` during deployment; it does not contact the agent.

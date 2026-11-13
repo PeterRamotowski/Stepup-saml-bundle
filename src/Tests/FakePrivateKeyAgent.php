@@ -36,13 +36,17 @@ use Surfnet\SamlBundle\PrivateKeyAgent\KeyMap;
 /**
  * An in-process stand-in for the Private Key Agent's sign and decrypt endpoints, which records every request.
  *
- * Only RSA-SHA256 signatures and RSA-OAEP with SHA-1 are implemented; the real agent is exercised by the
+ * Only RSA-SHA256/384/512 signatures and RSA-OAEP with SHA-1 are implemented; the real agent is exercised by the
  * target application in the workspace.
  */
 final class FakePrivateKeyAgent implements ClientInterface
 {
     public const string TOKEN = 'fake-agent-token';
-    private const string SHA256_DIGEST_INFO = '3031300d060960864801650304020105000420';
+    private const array DIGEST_INFO = [
+        'rsa-pkcs1-v1_5-sha256' => '3031300d060960864801650304020105000420',
+        'rsa-pkcs1-v1_5-sha384' => '3041300d060960864801650304020205000430',
+        'rsa-pkcs1-v1_5-sha512' => '3051300d060960864801650304020305000440',
+    ];
 
     /**
      * @var list<string> Request paths
@@ -89,7 +93,7 @@ final class FakePrivateKeyAgent implements ClientInterface
                 $tokens,
                 $keyMap->resolverFor(PrivateKeyAgentConfiguration::OPERATION_DECRYPT)
             ),
-            [C::SIG_RSA_SHA256],
+            [C::SIG_RSA_SHA256, C::SIG_RSA_SHA384, C::SIG_RSA_SHA512],
             [C::KEY_TRANSPORT_OAEP_MGF1P, C::KEY_TRANSPORT_OAEP],
         ))->register();
     }
@@ -151,10 +155,10 @@ final class FakePrivateKeyAgent implements ClientInterface
      */
     private function sign(OpenSSLAsymmetricKey $key, array $body): ?array
     {
-        if ($body['algorithm'] !== 'rsa-pkcs1-v1_5-sha256') {
+        if (!isset(self::DIGEST_INFO[$body['algorithm']])) {
             return null;
         }
-        $digestInfo = hex2bin(self::SHA256_DIGEST_INFO) . base64_decode($body['hash'], true);
+        $digestInfo = hex2bin(self::DIGEST_INFO[$body['algorithm']]) . base64_decode($body['hash'], true);
         if (!openssl_private_encrypt($digestInfo, $signature, $key, OPENSSL_PKCS1_PADDING)) {
             return null;
         }
