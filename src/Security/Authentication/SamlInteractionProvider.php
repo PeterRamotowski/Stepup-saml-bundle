@@ -18,12 +18,13 @@
 
 namespace Surfnet\SamlBundle\Security\Authentication;
 
-use SAML2\Assertion;
+use SimpleSAML\SAML2\XML\saml\Assertion;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\PostBinding;
 use Surfnet\SamlBundle\Http\RedirectBinding;
 use Surfnet\SamlBundle\SAML2\AuthnRequestFactory;
+use Surfnet\SamlBundle\SAML2\Response\AssertionValues;
 use Surfnet\SamlBundle\Security\Exception\UnexpectedIssuerException;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -51,9 +52,10 @@ class SamlInteractionProvider
             $this->identityProvider
         );
 
+        $response = $this->redirectBinding->createResponseFor($authnRequest);
         $this->samlAuthenticationStateHandler->setRequestId($authnRequest->getRequestId());
 
-        return $this->redirectBinding->createResponseFor($authnRequest);
+        return $response;
     }
 
     public function processSamlResponse(Request $request): Assertion
@@ -64,11 +66,12 @@ class SamlInteractionProvider
             $this->serviceProvider
         );
 
-        if ($assertion->getIssuer()->getValue() !== $this->identityProvider->getEntityId()) {
+        $issuer = AssertionValues::issuer($assertion);
+        if ($issuer !== $this->identityProvider->getEntityId()) {
             throw new UnexpectedIssuerException(sprintf(
                 'Expected issuer to be configured remote IdP "%s", got "%s"',
                 $this->identityProvider->getEntityId(),
-                $assertion->getIssuer()->getValue()
+                $issuer
             ));
         }
         return $assertion;

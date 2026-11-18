@@ -19,15 +19,18 @@
 namespace Surfnet\SamlBundle\Signing;
 
 use Psr\Log\LoggerInterface;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\Certificate\Key;
-use SAML2\Certificate\KeyLoader;
-use SAML2\Certificate\X509;
+use SimpleSAML\SAML2\Certificate\Key;
+use SimpleSAML\SAML2\Certificate\KeyLoader;
+use SimpleSAML\SAML2\Certificate\X509;
+use SimpleSAML\XMLSecurity\Exception\SignatureVerificationFailedException;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
 use Surfnet\SamlBundle\Http\SignatureVerifiable;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
 
+/**
+ * Coordinates certificate configuration, transport-specific requests and cryptographic verification.
+ */
 class SignatureVerifier
 {
     public function __construct(
@@ -40,7 +43,7 @@ class SignatureVerifier
     {
         $this->logger->debug(sprintf('Extracting public keys for ServiceProvider "%s"', $serviceProvider->getEntityId()));
 
-        $keys = $this->keyLoader->extractPublicKeys($serviceProvider);
+        $keys = CertificateKeys::extract($this->keyLoader, $serviceProvider);
 
         $this->logger->debug(sprintf('Found "%d" keys, filtering the keys to get X509 keys', $keys->count()));
         $x509Keys = $keys->filter(fn(Key $key): bool => $key instanceof X509);
@@ -51,8 +54,12 @@ class SignatureVerifier
         ));
 
         foreach ($x509Keys as $key) {
-            if ($this->isRequestSignedWith($request, $key)) {
-                return true;
+            try {
+                if ($key instanceof X509 && $this->isRequestSignedWith($request, $key)) {
+                    return true;
+                }
+            } catch (SignatureVerificationFailedException) {
+                $this->logger->debug('Signature did not match this certificate; trying the next configured certificate.');
             }
         }
 
@@ -63,16 +70,14 @@ class SignatureVerifier
 
     public function verifySignatureAlgorithmSupported(ReceivedAuthnRequestQueryString $request): bool
     {
-        return $request->getSignatureAlgorithm() === XMLSecurityKey::RSA_SHA256;
+        return SignatureAlgorithms::supportsRedirectVerification($request->getSignatureAlgorithm());
     }
 
     public function isRequestSignedWith(SignatureVerifiable $request, X509 $publicKey): bool
     {
         $this->logger->debug(sprintf('Attempting to verify signature with certificate "%s"', $publicKey->getCertificate()));
-        $key = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'public']);
-        $key->loadKey($publicKey->getCertificate());
 
-        if ($request->verify($key)) {
+        if ($request->verify(CertificateKeys::toPublicKey($publicKey))) {
             $this->logger->debug('Signature VERIFIED');
             return true;
         }
@@ -86,7 +91,7 @@ class SignatureVerifier
     {
         $this->logger->debug(sprintf('Extracting public keys for ServiceProvider "%s"', $serviceProvider->getEntityId()));
 
-        $keys = $this->keyLoader->extractPublicKeys($serviceProvider);
+        $keys = CertificateKeys::extract($this->keyLoader, $serviceProvider);
 
         $this->logger->debug(sprintf('Found "%d" keys, filtering the keys to get X509 keys', $keys->count()));
         $x509Keys = $keys->filter(fn(Key $key): bool => $key instanceof X509);
@@ -97,7 +102,7 @@ class SignatureVerifier
         ));
 
         foreach ($x509Keys as $key) {
-            if ($this->isSignedWith($request, $key)) {
+            if ($key instanceof X509 && $this->isSignedWith($request, $key)) {
                 return true;
             }
         }
@@ -108,16 +113,23 @@ class SignatureVerifier
     }
 
     /**
-     * @throws \Exception
+     * Verifies legacy requests only when a signature and the supported algorithm are present.
      */
     public function isSignedWith(AuthnRequest $request, X509 $publicKey): bool
     {
-        $this->logger->debug(sprintf('Attempting to verify signature with certificate "%s"', $publicKey->getCertificate()));
-        $key = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'public']);
-        $key->loadKey($publicKey->getCertificate());
+        if (!$request->isSigned()
+            || !SignatureAlgorithms::supportsRedirectVerification((string) $request->getSignatureAlgorithm())
+        ) {
+            return false;
+        }
 
-        $isVerified = $key->verifySignature($request->getSignedRequestQuery(), $request->getSignature());
-        if ($isVerified !== 1) {
+        $this->logger->debug(sprintf('Attempting to verify signature with certificate "%s"', $publicKey->getCertificate()));
+        $verifier = SignatureAlgorithms::forRedirectVerification(
+            (string) $request->getSignatureAlgorithm(),
+            CertificateKeys::toPublicKey($publicKey)
+        );
+
+        if (!$verifier->verify($request->getSignedRequestQuery(), (string) $request->getSignature())) {
             $this->logger->debug('Signature NOT VERIFIED');
             return false;
         }

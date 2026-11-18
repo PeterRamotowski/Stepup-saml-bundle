@@ -18,18 +18,28 @@
 
 namespace Surfnet\SamlBundle\Tests\Component\Signing;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\AuthnRequest as SAML2AuthnRequest;
-use SAML2\Certificate\KeyLoader;
-use SAML2\Certificate\X509;
-use SAML2\DOMDocumentFactory;
+use SimpleSAML\SAML2\Certificate\KeyLoader;
+use SimpleSAML\SAML2\Certificate\X509;
+use SimpleSAML\SAML2\Compat\ContainerSingleton;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
+use SimpleSAML\XML\DOMDocumentFactory;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmFactory;
+use SimpleSAML\XMLSecurity\Alg\Signature\SignatureAlgorithmInterface;
+use SimpleSAML\XMLSecurity\Constants as C;
+use SimpleSAML\XMLSecurity\CryptoEncoding\PEM;
+use SimpleSAML\XMLSecurity\Key\PrivateKey;
+use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
 use Surfnet\SamlBundle\SAML2\AuthnRequest;
+use Surfnet\SamlBundle\SAML2\BridgeContainer;
+use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
 use Surfnet\SamlBundle\Signing\SignatureVerifier;
+use Symfony\Component\Clock\MockClock;
 
 class AuthnRequestSigningTest extends TestCase
 {
@@ -47,6 +57,11 @@ class AuthnRequestSigningTest extends TestCase
 AUTHNREQUEST_NO_SUBJECT;
 
     private ?string $publicKey = null;
+
+    protected function setUp(): void
+    {
+        ContainerSingleton::setContainer(new BridgeContainer(new NullLogger(), new MockClock()));
+    }
 
     #[Test]
     #[Group('Signing')]
@@ -148,18 +163,17 @@ AUTHNREQUEST_NO_SUBJECT;
         $signatureVerifier = new SignatureVerifier(new KeyLoader, new NullLogger);
         $certificate       = X509::createFromCertificateData($this->getPublicKey());
         $keyData           = file_get_contents(__DIR__.'/../../../Resources/keys/development_privatekey.pem');
-        $privateKey        = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-        $privateKey->loadKey($keyData);
+        $privateKey        = self::createSigner($keyData);
 
         $queryParameters = [
             ReceivedAuthnRequestQueryString::PARAMETER_REQUEST => $this->createEncodedSamlRequest(),
-            ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE_ALGORITHM => $privateKey->type
+            ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE_ALGORITHM => $privateKey->getAlgorithmId()
         ];
 
         $dataToSignWithDefaultEncoding = $this->encodeDataToSignWithPhpsHttpBuildQuery($queryParameters);
         $queryParametersWithDefaultEncoding = $queryParameters;
         $queryParametersWithDefaultEncoding[ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE] = base64_encode(
-            (string) $privateKey->signData($dataToSignWithDefaultEncoding)
+            (string) $privateKey->sign($dataToSignWithDefaultEncoding)
         );
         $rawQueryWithDefaultEncoding = $this->encodeDataToSignWithPhpsHttpBuildQuery($queryParametersWithDefaultEncoding);
         $queryStringWithDefaultEncoding = ReceivedAuthnRequestQueryString::parse($rawQueryWithDefaultEncoding);
@@ -167,7 +181,7 @@ AUTHNREQUEST_NO_SUBJECT;
         $dataToSignWithCustomEncoding = $this->encodeDataToSignWithCustomHttpQueryEncoding($queryParameters);
         $queryParametersWithCustomEncoding = $queryParameters;
         $queryParametersWithCustomEncoding[ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE] = base64_encode(
-            (string) $privateKey->signData($dataToSignWithCustomEncoding)
+            (string) $privateKey->sign($dataToSignWithCustomEncoding)
         );
         $rawQueryWithCustomEncoding = $this->encodeDataToSignWithCustomHttpQueryEncoding(
             $queryParametersWithCustomEncoding
@@ -202,12 +216,11 @@ AUTHNREQUEST_NO_SUBJECT;
         $signatureVerifier = new SignatureVerifier(new KeyLoader, new NullLogger);
         $certificate       = X509::createFromCertificateData($this->getPublicKey());
         $keyData           = file_get_contents(__DIR__.'/../../../Resources/keys/development_privatekey.pem');
-        $privateKey        = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-        $privateKey->loadKey($keyData);
+        $privateKey        = self::createSigner($keyData);
 
         $queryParameters = [
             ReceivedAuthnRequestQueryString::PARAMETER_REQUEST => $this->createEncodedSamlRequest(),
-            ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE_ALGORITHM => $privateKey->type,
+            ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE_ALGORITHM => $privateKey->getAlgorithmId(),
             ReceivedAuthnRequestQueryString::PARAMETER_SIGNATURE => base64_encode('fake-key')
         ];
 
@@ -222,6 +235,68 @@ AUTHNREQUEST_NO_SUBJECT;
             . ' that does not correspond with the data-to-sign'
             . ' in the http query should not be verifiable but it is'
         );
+    }
+
+    #[Test]
+    public function deprecated_verification_does_not_ignore_the_declared_algorithm(): void
+    {
+        // Sign a query declaring SHA512 with SHA256: the legacy verifier used to ignore that mismatch.
+        $request = $this->createSignedAuthnRequest(
+            $this->encodeDataToSignWithPhpsHttpBuildQuery(...),
+            declaredAlgorithm: C::SIG_RSA_SHA512
+        );
+        $verifier = new SignatureVerifier(new KeyLoader(), new NullLogger());
+
+        $this->assertFalse($verifier->isSignedWith($request, X509::createFromCertificateData($this->getPublicKey())));
+    }
+
+    public static function falsyRelayStates(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'zero' => ['0'];
+    }
+
+    #[Test]
+    #[DataProvider('falsyRelayStates')]
+    public function deprecated_verification_preserves_present_relay_state_values(string $relayState): void
+    {
+        $request = $this->createSignedAuthnRequest(
+            $this->encodeDataToSignWithPhpsHttpBuildQuery(...),
+            relayState: $relayState
+        );
+        $verifier = new SignatureVerifier(new KeyLoader(), new NullLogger());
+
+        $this->assertTrue($verifier->isSignedWith($request, X509::createFromCertificateData($this->getPublicKey())));
+    }
+
+    public static function unsignedRequestFactories(): iterable
+    {
+        yield 'createNew' => [false];
+        yield 'createUnsigned' => [true];
+    }
+
+    #[Test]
+    #[DataProvider('unsignedRequestFactories')]
+    public function unsigned_legacy_requests_fail_verification_without_a_type_error(bool $legacy): void
+    {
+        $xml = SAML2AuthnRequest::fromXML(DOMDocumentFactory::fromString($this->authRequestNoSubject)->documentElement);
+        $request = $legacy ? AuthnRequest::createUnsigned($xml, 'raw-request', '') : AuthnRequest::createNew($xml);
+        $verifier = new SignatureVerifier(new KeyLoader(), new NullLogger());
+
+        $this->assertFalse($verifier->isSignedWith($request, X509::createFromCertificateData($this->getPublicKey())));
+    }
+
+    #[Test]
+    public function pss_verification_accepts_pss_padding_and_rejects_pkcs1_padding(): void
+    {
+        $privateKey = PrivateKey::fromFile(__DIR__ . '/../../../Resources/keys/development_privatekey.pem');
+        $publicKey = X509Certificate::fromFile(__DIR__ . '/../../../Resources/keys/development_publickey.cer')->getPublicKey();
+        openssl_sign('padding probe', $pss, $privateKey->getMaterial(), 'sha256', OPENSSL_PKCS1_PSS_PADDING);
+        openssl_sign('padding probe', $pkcs1, $privateKey->getMaterial(), 'sha256', OPENSSL_PKCS1_PADDING);
+        $verifier = SignatureAlgorithms::forVerification(C::SIG_RSA_PSS_SHA256, $publicKey);
+
+        $this->assertTrue($verifier->verify('padding probe', $pss));
+        $this->assertFalse($verifier->verify('padding probe', $pkcs1));
     }
 
     private function encodeDataToSignWithPhpsHttpBuildQuery(array $params): string
@@ -247,32 +322,38 @@ AUTHNREQUEST_NO_SUBJECT;
      * @param callable $prepareDataToSign Expects an associative array of data to sign and returns a string to sign
      * @param null|string $customSignature Signature to be used instead of signature to sign data to sign with
      */
-    private function createSignedAuthnRequest(callable $prepareDataToSign, ?string $customSignature = null): AuthnRequest
-    {
+    private function createSignedAuthnRequest(
+        callable $prepareDataToSign,
+        ?string $customSignature = null,
+        string $declaredAlgorithm = C::SIG_RSA_SHA256,
+        ?string $relayState = null,
+    ): AuthnRequest {
         $keyData    = file_get_contents(__DIR__.'/../../../Resources/keys/development_privatekey.pem');
-        $privateKey = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-        $privateKey->loadKey($keyData);
+        $privateKey = self::createSigner($keyData);
 
         $domDocument          = DOMDocumentFactory::fromString($this->authRequestNoSubject);
-        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->firstChild);
+        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->documentElement);
 
-        $requestAsXml   = $unsignedAuthnRequest->toUnsignedXML()->ownerDocument->saveXML();
+        $requestAsXml   = $unsignedAuthnRequest->toXML()->ownerDocument->saveXml();
         $encodedRequest = base64_encode(gzdeflate($requestAsXml));
         $queryParams    = [AuthnRequest::PARAMETER_REQUEST => $encodedRequest];
 
-        $queryParams[AuthnRequest::PARAMETER_SIGNATURE_ALGORITHM] = $privateKey->type;
+        if ($relayState !== null) {
+            $queryParams[AuthnRequest::PARAMETER_RELAY_STATE] = $relayState;
+        }
+        $queryParams[AuthnRequest::PARAMETER_SIGNATURE_ALGORITHM] = $declaredAlgorithm;
 
         $toSign = $prepareDataToSign($queryParams);
-        $signature = $customSignature === null ? base64_encode((string) $privateKey->signData($toSign)) : base64_encode($customSignature);
+        $signature = $customSignature === null ? base64_encode((string) $privateKey->sign($toSign)) : base64_encode($customSignature);
 
-        $saml2AuthnRequest = SAML2AuthnRequest::fromXML($unsignedAuthnRequest->toUnsignedXML());
+        $saml2AuthnRequest = $unsignedAuthnRequest;
 
         return AuthnRequest::createSigned(
             $saml2AuthnRequest,
             $encodedRequest,
-            null,
+            $relayState,
             $signature,
-            (string) $privateKey->type
+            $declaredAlgorithm
         );
     }
 
@@ -289,9 +370,17 @@ AUTHNREQUEST_NO_SUBJECT;
     private function createEncodedSamlRequest(): string
     {
         $domDocument          = DOMDocumentFactory::fromString($this->authRequestNoSubject);
-        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->firstChild);
-        $requestAsXml         = $unsignedAuthnRequest->toUnsignedXML()->ownerDocument->saveXML();
+        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->documentElement);
+        $requestAsXml         = $unsignedAuthnRequest->toXML()->ownerDocument->saveXml();
 
         return base64_encode(gzdeflate($requestAsXml));
+    }
+
+    private static function createSigner(string $privateKeyPem): SignatureAlgorithmInterface
+    {
+        return (new SignatureAlgorithmFactory())->getAlgorithm(
+            C::SIG_RSA_SHA256,
+            new PrivateKey(PEM::fromString($privateKeyPem))
+        );
     }
 }

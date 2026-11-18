@@ -18,154 +18,98 @@
 
 namespace Surfnet\SamlBundle\SAML2;
 
-use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\AuthnRequest as SAML2AuthnRequest;
-use SAML2\Constants;
-use SAML2\DOMDocumentFactory;
-use SAML2\Message;
-use SAML2\XML\saml\Issuer;
-use SAML2\XML\saml\NameID;
-use Surfnet\SamlBundle\Exception\InvalidArgumentException;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
+use SimpleSAML\XMLSecurity\Key\PublicKey;
 use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\SAML2\Extensions\ExtensionsMapperTrait;
-use function sprintf;
+use Surfnet\SamlBundle\Signing\SignatureAlgorithms;
+use Surfnet\SamlBundle\Signing\SignatureTransformGuard;
 
 final class ReceivedAuthnRequest
 {
+    use AuthnRequestAccessorsTrait;
     use ExtensionsMapperTrait;
 
-    private function __construct(private readonly SAML2AuthnRequest $request)
+    private function __construct(private SAML2AuthnRequest $request)
     {
         $this->loadExtensionsFromSaml2AuthNRequest();
     }
 
     public static function from(string $decodedSamlRequest): ReceivedAuthnRequest
     {
-        if ($decodedSamlRequest === '') {
-            throw new InvalidArgumentException(
-                'Could not create ReceivedAuthnRequest: expected a non-empty string, received an empty string'
-            );
-        }
-
-        // additional security against XXE Processing vulnerability
-        $document = DOMDocumentFactory::fromString($decodedSamlRequest);
-
-        if (!$document->firstChild) {
-            throw new RuntimeException('The SAML message can not be read from the document');
-        }
-
-        $authnRequest = Message::fromXML($document->firstChild);
-
-        if (!$authnRequest instanceof SAML2AuthnRequest) {
-            throw new RuntimeException(sprintf(
-                'The received request is not an AuthnRequest, "%s" received instead',
-                $authnRequest::class
-            ));
-        }
-
-        return new self($authnRequest);
+        return new self(AuthnRequestParser::parse($decodedSamlRequest));
     }
 
-    public function getAuthenticationContextClassRef(): ?string
+    /**
+     * Use for HTTP-Redirect requests only; see AuthnRequestParser::parseFromHttpRedirectBinding().
+     */
+    public static function fromHttpRedirectBinding(string $decodedSamlRequest): ReceivedAuthnRequest
     {
-        $authnContext = $this->request->getRequestedAuthnContext();
-
-        if (!is_array($authnContext) || !array_key_exists('AuthnContextClassRef', $authnContext)) {
-            return null;
-        }
-
-        return reset($authnContext['AuthnContextClassRef']) ?: null;
-    }
-
-    public function setAuthenticationContextClassRef($authnClassRef): void
-    {
-        $authnContext = ['AuthnContextClassRef' => [$authnClassRef]];
-        $this->request->setRequestedAuthnContext($authnContext);
+        return new self(AuthnRequestParser::parseFromHttpRedirectBinding($decodedSamlRequest));
     }
 
     public function getNameId(): ?string
     {
-        $nameId = $this->request->getNameId();
-        if (!$nameId instanceof NameID) {
-            return null;
-        }
-
-        return $nameId->getValue();
-    }
-
-    public function getNameIdFormat(): ?string
-    {
-        $nameId = $this->request->getNameId();
-        if (!$nameId instanceof NameID) {
-            return null;
-        }
-
-        return $nameId->getFormat();
-    }
-
-    public function setSubject(string $nameId, ?string $format = null): void
-    {
-        $nameIdVo = new NameID;
-        $nameIdVo->setValue($nameId);
-        $nameIdVo->setFormat(($format ?: Constants::NAMEID_UNSPECIFIED));
-
-        $this->request->setNameId($nameIdVo);
-    }
-
-    public function getRequestId(): string
-    {
-        return $this->request->getId();
-    }
-
-    public function isPassive(): bool
-    {
-        return $this->request->getIsPassive();
-    }
-
-    public function isForceAuthn(): bool
-    {
-        return $this->request->getForceAuthn();
+        return $this->getRequestNameId()?->getContent()->getValue();
     }
 
     public function getDestination(): ?string
     {
-        return $this->request->getDestination();
+        return $this->request->getDestination()?->getValue();
     }
 
     public function getServiceProvider(): ?string
     {
-        if (!$this->request->getIssuer() instanceof Issuer) {
-            return null;
-        }
-        return $this->request->getIssuer()->getValue();
-    }
-
-    public function getUnsignedXML(): string
-    {
-        return $this->request->toUnsignedXML()->ownerDocument->saveXML();
+        return $this->request->getIssuer()?->getContent()->getValue();
     }
 
     public function getAssertionConsumerServiceURL(): string
     {
-        return $this->request->getAssertionConsumerServiceURL();
-    }
-
-    public function setScoping(array $requesterIds, int $proxyCount = 10): void
-    {
-        $this->request->setRequesterID($requesterIds);
-        $this->request->setProxyCount($proxyCount);
+        return $this->request->getAssertionConsumerServiceURL()?->getValue()
+            ?? throw new RuntimeException('The AuthnRequest has no AssertionConsumerServiceURL');
     }
 
     public function getScopingRequesterIds(): array
     {
-        return $this->request->getRequesterID();
+        return array_map(
+            static fn ($requesterId): string => $requesterId->getContent()->getValue(),
+            $this->request->getScoping()?->getRequesterId() ?? []
+        );
     }
 
     /**
-     * @throws \Exception when signature is invalid (@see SAML2\Utils::validateSignature)
+     * Checks the signature without changing this request. Use verifiedWith() to consume the signed content.
+     *
+     * @throws \Exception when the signature is invalid
      */
-    public function verify(XMLSecurityKey $key): bool
+    public function verify(PublicKey $publicKey): bool
     {
-        return $this->request->validate($key);
+        return $this->verifiedWith($publicKey) !== null;
+    }
+
+    /**
+     * Returns a separate request built from the signed content, or null when no signature is present.
+     *
+     * @throws \Exception when the signature is invalid
+     */
+    public function verifiedWith(PublicKey $publicKey): ?self
+    {
+        $signature = $this->request->getSignature();
+        if ($signature === null) {
+            return null;
+        }
+
+        SignatureTransformGuard::assertNoForbiddenTransforms($signature->toXML());
+        $verifier = SignatureAlgorithms::forVerification(
+            $signature->getSignedInfo()->getSignatureMethod()->getAlgorithm()->getValue(),
+            $publicKey
+        );
+
+        // Continue with the request as covered by the signature, not the document it was found in.
+        $verified = $this->request->verify($verifier);
+        if (!$verified instanceof SAML2AuthnRequest) {
+            throw new RuntimeException('The verified message is not an AuthnRequest');
+        }
+        return new self($verified);
     }
 }

@@ -24,8 +24,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use SAML2\Compat\ContainerSingleton;
-use SAML2\Compat\MockContainer;
+use SimpleSAML\SAML2\Compat\ContainerSingleton;
+use SimpleSAML\SAML2\Compat\MockContainer;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Entity\ServiceProviderRepository;
 use Surfnet\SamlBundle\Http\Exception\SignatureValidationFailedException;
@@ -35,6 +35,7 @@ use Surfnet\SamlBundle\Http\ReceivedAuthnRequestQueryString;
 use Surfnet\SamlBundle\Http\RedirectBinding;
 use Surfnet\SamlBundle\Http\RedirectBinding as SamlBundleRedirectBinding;
 use Surfnet\SamlBundle\Signing\SignatureVerifier;
+use Surfnet\SamlBundle\Tests\Unit\SAML2\AuthnRequestParserTest;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
@@ -57,6 +58,70 @@ MESSAGE;
     private SamlBundleRedirectBinding $redirectBinding;
 
     private m\MockInterface|ServiceProviderRepository $entityRepository;
+
+    public static function invalidRequests(): iterable
+    {
+        foreach (AuthnRequestParserTest::invalidRequests() as $name => [$xml]) {
+            yield $name . ' unsigned' => [$xml, false];
+            yield $name . ' signed' => [$xml, true];
+        }
+    }
+
+    #[Test]
+    #[DataProvider('invalidRequests')]
+    public function invalid_authn_request_xml_is_an_http_bad_request(string $xml, bool $signed): void
+    {
+        $query = ['SAMLRequest' => base64_encode(gzdeflate($xml))];
+        $verifier = m::mock(SignatureVerifier::class);
+        if ($signed) {
+            $query['SigAlg'] = 'signature-algorithm';
+            $query['Signature'] = base64_encode('signature');
+            $verifier->shouldReceive('verifySignatureAlgorithmSupported')->once()->andReturn(true);
+        }
+        $binding = new RedirectBinding($verifier, $this->entityRepository);
+        $request = Request::create('https://idp.example.org/sso?' . http_build_query($query));
+        $this->expectException(BadRequestHttpException::class);
+        if ($signed) {
+            $binding->receiveSignedAuthnRequestFrom($request);
+        } else {
+            $binding->receiveUnsignedAuthnRequestFrom($request);
+        }
+    }
+
+    public static function invalidTransportQueries(): iterable
+    {
+        $payloads = [
+            'invalid base64' => 'SAMLRequest=' . urlencode('!invalid!'),
+            'not deflated' => 'SAMLRequest=' . urlencode(base64_encode('plain XML instead of deflate')),
+            'duplicate parameter' => 'SAMLRequest=first&SAMLRequest=second',
+            'missing parameter' => 'unrelated=value',
+            'invalid query pair' => 'SAMLRequest',
+        ];
+        foreach ($payloads as $name => $query) {
+            yield $name . ' unsigned' => [$query, false];
+            yield $name . ' signed' => [$query, true];
+        }
+    }
+
+    #[Test]
+    #[DataProvider('invalidTransportQueries')]
+    public function transport_errors_are_http_bad_requests(string $query, bool $signed): void
+    {
+        $verifier = m::mock(SignatureVerifier::class);
+        if ($signed) {
+            $query .= '&' . http_build_query(['SigAlg' => 'signature-algorithm', 'Signature' => base64_encode('signature')]);
+            $verifier->shouldReceive('verifySignatureAlgorithmSupported')->andReturn(true);
+        }
+        $binding = new RedirectBinding($verifier, $this->entityRepository);
+        $request = Request::create('https://idp.example.org/sso?' . $query);
+
+        $this->expectException(BadRequestHttpException::class);
+        if ($signed) {
+            $binding->receiveSignedAuthnRequestFrom($request);
+        } else {
+            $binding->receiveUnsignedAuthnRequestFrom($request);
+        }
+    }
 
     public function setUp(): void
     {

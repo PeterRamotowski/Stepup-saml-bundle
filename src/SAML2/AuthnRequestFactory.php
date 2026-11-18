@@ -18,18 +18,16 @@
 
 namespace Surfnet\SamlBundle\SAML2;
 
-use RobRichards\XMLSecLibs\XMLSecurityKey;
-use SAML2\AuthnRequest as SAML2AuthnRequest;
-use SAML2\Certificate\PrivateKeyLoader;
-use SAML2\Configuration\PrivateKey;
-use SAML2\Constants;
-use SAML2\DOMDocumentFactory;
-use SAML2\Message;
-use SAML2\XML\saml\Issuer;
+use SimpleSAML\SAML2\Constants;
+use SimpleSAML\SAML2\Type\SAMLAnyURIValue;
+use SimpleSAML\SAML2\Type\SAMLStringValue;
+use SimpleSAML\SAML2\XML\saml\Issuer;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
+use SimpleSAML\XMLSchema\Type\BooleanValue;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
-use Surfnet\SamlBundle\Exception\RuntimeException;
 use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
+use Surfnet\SamlBundle\Signing\Signers;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
@@ -98,19 +96,7 @@ class AuthnRequestFactory
             ));
         }
 
-        // additional security against XXE Processing vulnerability
-        $document = DOMDocumentFactory::fromString($samlRequest);
-
-        $request = Message::fromXML($document->firstChild);
-
-        if (!$request instanceof SAML2AuthnRequest) {
-            throw new RuntimeException(sprintf(
-                'The received request is not an AuthnRequest, "%s" received instead',
-                $request::class
-            ));
-        }
-
-        return $request;
+        return AuthnRequestParser::parseFromHttpRedirectBinding($samlRequest);
     }
 
     public static function createNewRequest(
@@ -119,31 +105,18 @@ class AuthnRequestFactory
         bool $forceAuthn = false,
         string $relayState = ''
     ): AuthnRequest {
-        $issuer = new Issuer();
-        $issuer->setValue($serviceProvider->getEntityId());
-        $request = new SAML2AuthnRequest();
-        $request->setAssertionConsumerServiceURL($serviceProvider->getAssertionConsumerUrl());
-        $request->setDestination($identityProvider->getSsoUrl());
-        $request->setIssuer($issuer);
-        $request->setProtocolBinding(Constants::BINDING_HTTP_POST);
-        $request->setForceAuthn($forceAuthn);
-        $request->setSignatureKey(self::loadPrivateKey(
-            $serviceProvider->getPrivateKey(PrivateKey::NAME_DEFAULT)
-        ));
-        if (!empty($relayState)) {
-            $request->setRelayState($relayState);
-        }
-        return AuthnRequest::createNew($request);
-    }
+        $signer = Signers::forHostedEntity($serviceProvider);
 
-    private static function loadPrivateKey(PrivateKey $key): XMLSecurityKey
-    {
-        $keyLoader = new PrivateKeyLoader();
-        $privateKey = $keyLoader->loadPrivateKey($key);
+        $request = new SAML2AuthnRequest(
+            id: AuthnRequestRebuilder::newId(),
+            issueInstant: AuthnRequestRebuilder::now(),
+            forceAuthn: $forceAuthn ? BooleanValue::fromBoolean(true) : null,
+            assertionConsumerServiceURL: SAMLAnyURIValue::fromString((string) $serviceProvider->getAssertionConsumerUrl()),
+            protocolBinding: SAMLAnyURIValue::fromString(Constants::BINDING_HTTP_POST),
+            issuer: new Issuer(SAMLStringValue::fromString((string) $serviceProvider->getEntityId())),
+            destination: SAMLAnyURIValue::fromString((string) $identityProvider->getSsoUrl()),
+        );
 
-        $key        = new XMLSecurityKey(XMLSecurityKey::RSA_SHA256, ['type' => 'private']);
-        $key->loadKey($privateKey->getKeyAsString());
-
-        return $key;
+        return AuthnRequest::createNew($request, $signer, $relayState);
     }
 }

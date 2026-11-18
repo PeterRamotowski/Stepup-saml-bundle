@@ -19,7 +19,8 @@
 namespace Surfnet\SamlBundle\Http;
 
 use Exception;
-use RobRichards\XMLSecLibs\XMLSecurityKey;
+use SimpleSAML\XMLSecurity\Key\PublicKey;
+use Surfnet\SamlBundle\Exception\LogicException;
 use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
 use Surfnet\SamlBundle\SAML2\ReceivedAuthnRequest;
 
@@ -32,17 +33,20 @@ final class ReceivedAuthnRequestPost implements SignatureVerifiable
 
     private ?ReceivedAuthnRequest $receivedRequest = null;
 
+    private ?ReceivedAuthnRequest $verifiedRequest = null;
+
     private function __construct(private readonly string $samlRequest)
     {
     }
 
     public static function parse(array $parameters): self
     {
-        if (base64_decode((string) $parameters[self::PARAMETER_REQUEST], true) === false) {
+        $samlRequest = $parameters[self::PARAMETER_REQUEST] ?? null;
+        if (!is_string($samlRequest) || $samlRequest === '' || base64_decode($samlRequest, true) === false) {
             throw new InvalidRequestException('Failed decoding SAML request, did not receive a valid base64 string');
         }
 
-        $parsed = new self($parameters[self::PARAMETER_REQUEST]);
+        $parsed = new self($samlRequest);
 
         if (isset($parameters[self::PARAMETER_RELAY_STATE])) {
             $parsed->relayState = $parameters[self::PARAMETER_RELAY_STATE];
@@ -78,10 +82,26 @@ final class ReceivedAuthnRequestPost implements SignatureVerifiable
     }
 
     /**
-     * @throws Exception when signature is invalid (@see SAML2\Utils::validateSignature)
+     * @throws Exception when the signature is invalid
      */
-    public function verify(XMLSecurityKey $key): bool
+    public function verify(PublicKey $key): bool
     {
-        return $this->receivedRequest->verify($key);
+        $verified = $this->receivedRequest?->verifiedWith($key);
+        if ($verified === null) {
+            return false;
+        }
+
+        $this->verifiedRequest = $verified;
+
+        return true;
+    }
+
+    /**
+     * After a successful verify(), this is the request as covered by the signature.
+     */
+    public function getAuthnRequest(): ReceivedAuthnRequest
+    {
+        return $this->verifiedRequest ?? $this->receivedRequest
+            ?? throw new LogicException('The AuthnRequest has not been parsed');
     }
 }

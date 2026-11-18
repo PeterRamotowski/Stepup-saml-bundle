@@ -46,6 +46,10 @@ class Configuration implements ConfigurationInterface
 
         $this->addHostedSection($rootNode);
         $this->addRemoteSection($rootNode);
+        $rootNode
+            ->children()
+                ->append((new PrivateKeyAgentConfiguration())->getConfigTreeBuilder()->getRootNode())
+            ->end();
 
         return $treeBuilder;
     }
@@ -83,6 +87,13 @@ class Configuration implements ConfigurationInterface
                                 ->defaultNull()
                                 ->info('The absolute path to the private key used to sign AuthnRequests')
                             ->end()
+                            ->booleanNode('use_private_key_agent')
+                                ->defaultFalse()
+                                ->info(
+                                    'Sign through the Private Key Agent using the key matching public_key.'
+                                    . ' When false, sign locally using private_key.'
+                                )
+                            ->end()
                         ->end()
                     ->end()
                     ->arrayNode('identity_provider')
@@ -114,6 +125,13 @@ class Configuration implements ConfigurationInterface
                                 ->defaultNull()
                                 ->info('The absolute path to the private key used to sign Responses to AuthRequests with')
                             ->end()
+                            ->booleanNode('use_private_key_agent')
+                                ->defaultFalse()
+                                ->info(
+                                    'Sign through the Private Key Agent using the key matching public_key.'
+                                    . ' When false, sign locally using private_key.'
+                                )
+                            ->end()
                         ->end()
                     ->end()
                     ->arrayNode('metadata')
@@ -129,6 +147,13 @@ class Configuration implements ConfigurationInterface
                         ->scalarNode('private_key')
                             ->defaultNull()
                             ->info('The absolute path to the private key used to sign the metadata')
+                        ->end()
+                        ->booleanNode('use_private_key_agent')
+                            ->defaultFalse()
+                            ->info(
+                                'Sign through the Private Key Agent using the key matching public_key.'
+                                . ' When false, sign locally using private_key.'
+                            )
                         ->end()
                     ->end()
                 ->end()

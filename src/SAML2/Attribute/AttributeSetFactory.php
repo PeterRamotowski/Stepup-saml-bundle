@@ -18,7 +18,7 @@
 
 namespace Surfnet\SamlBundle\SAML2\Attribute;
 
-use SAML2\Assertion;
+use SimpleSAML\SAML2\XML\saml\Assertion;
 
 interface AttributeSetFactory
 {

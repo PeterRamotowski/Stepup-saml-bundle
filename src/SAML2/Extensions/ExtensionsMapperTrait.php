@@ -18,8 +18,19 @@
 
 namespace Surfnet\SamlBundle\SAML2\Extensions;
 
-use SAML2\XML\Chunk as SAML2Chunk;
+use Dom\Element;
+use Dom\XMLDocument;
+use DOMDocument;
+use DOMElement;
+use SimpleSAML\SAML2\XML\samlp\Extensions as SAML2Extensions;
+use SimpleSAML\XML\Chunk as SAML2Chunk;
+use SimpleSAML\XML\DOMDocumentFactory;
+use Surfnet\SamlBundle\Exception\RuntimeException;
+use Surfnet\SamlBundle\SAML2\AuthnRequestRebuilder;
 
+/**
+ * The bundle's extension chunks keep their legacy DOMElement API; values are converted at the saml2 v7 boundary.
+ */
 trait ExtensionsMapperTrait
 {
     private Extensions $extensions;
@@ -27,27 +38,26 @@ trait ExtensionsMapperTrait
     private function loadExtensionsFromSaml2AuthNRequest(): void
     {
         $this->extensions = new Extensions();
-        if (!empty($this->request->getExtensions())) {
-            $rawExtensions = $this->request->getExtensions();
-            /** @var SAML2Chunk $rawChunk */
-            foreach ($rawExtensions as $rawChunk) {
-                match (true) {
-                    $rawChunk->getLocalName() === 'UserAttributes' => $this->extensions->addChunk(
-                        new GsspUserAttributesChunk($rawChunk->getXML())
+        $rawExtensions = $this->request->getExtensions();
+        if (!$rawExtensions instanceof SAML2Extensions) {
+            return;
+        }
+
+        foreach ($rawExtensions->getElements() as $rawElement) {
+            $value = self::toLegacyElement($rawElement->toXML());
+
+            match (true) {
+                $value->localName === 'UserAttributes' => $this->extensions->addChunk(
+                    new GsspUserAttributesChunk($value)
+                ),
+                $value->localName === 'UIInfo'
+                    && $value->namespaceURI === MduiChunk::MDUI_NAMESPACE => $this->extensions->addChunk(
+                        new MduiChunk($value)
                     ),
-                    $rawChunk->getLocalName() === 'UIInfo'
-                        && $rawChunk->getNamespaceURI() === MduiChunk::MDUI_NAMESPACE => $this->extensions->addChunk(
-                            new MduiChunk($rawChunk->getXML())
-                        ),
-                    default => $this->extensions->addChunk(
-                        new Chunk(
-                            $rawChunk->getLocalName(),
-                            $rawChunk->getNamespaceURI(),
-                            $rawChunk->getXML()
-                        )
-                    ),
-                };
-            }
+                default => $this->extensions->addChunk(
+                    new Chunk((string) $value->localName, (string) $value->namespaceURI, $value)
+                ),
+            };
         }
     }
 
@@ -64,8 +74,33 @@ trait ExtensionsMapperTrait
         $this->extensions = $extensions;
         $samlExt = [];
         foreach ($this->extensions->getChunks() as $chunk) {
-            $samlExt[] = new SAML2Chunk($chunk->getValue());
+            $samlExt[] = new SAML2Chunk(self::toModernElement($chunk->getValue()));
         }
-        $this->request->setExtensions($samlExt);
+        $this->request = AuthnRequestRebuilder::with($this->request, [
+            'extensions' => $samlExt === [] ? null : new SAML2Extensions($samlExt),
+        ]);
+    }
+
+    private static function toModernElement(DOMElement $element): Element
+    {
+        $xml = $element->ownerDocument?->saveXML($element);
+        $modern = is_string($xml) && $xml !== '' ? DOMDocumentFactory::fromString($xml)->documentElement : null;
+        if (!$modern instanceof Element) {
+            throw new RuntimeException('Could not convert the extension element');
+        }
+
+        return $modern;
+    }
+
+    private static function toLegacyElement(Element $element): DOMElement
+    {
+        $document = $element->ownerDocument;
+        $xml = $document instanceof XMLDocument ? $document->saveXml($element) : false;
+        $legacy = new DOMDocument('1.0', 'UTF-8');
+        if (!is_string($xml) || !$legacy->loadXML($xml) || !$legacy->documentElement instanceof DOMElement) {
+            throw new RuntimeException('Could not convert the extension element');
+        }
+
+        return $legacy->documentElement;
     }
 }

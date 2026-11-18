@@ -105,26 +105,47 @@ services:
 
     surfnet_saml.saml2.bridge_container:
         class: Surfnet\SamlBundle\SAML2\BridgeContainer
+        public: true
+        arguments:
+            - '@logger'
+            - '@Psr\Clock\ClockInterface'
 
     Surfnet\SamlBundle\SAML2\BridgeContainer:
         alias: surfnet_saml.saml2.bridge_container
 
     surfnet_saml.saml2.keyloader:
-        class: SAML2\Certificate\KeyLoader
+        class: SimpleSAML\SAML2\Certificate\KeyLoader
 
-    SAML2\Certificate\KeyLoader:
+    SimpleSAML\SAML2\Certificate\KeyLoader:
         alias: surfnet_saml.saml2.keyloader
 
     surfnet_saml.saml2.privatekeyloader:
-        class: SAML2\Certificate\PrivateKeyLoader
+        class: SimpleSAML\SAML2\Certificate\PrivateKeyLoader
 
-    SAML2\Certificate\PrivateKeyLoader:
+    SimpleSAML\SAML2\Certificate\PrivateKeyLoader:
         alias: surfnet_saml.saml2.privatekeyloader
 
-    surfnet_saml.saml2.response_processor:
-        class: SAML2\Response\Processor
+    surfnet_saml.saml2.local_assertion_decrypter:
+        class: Surfnet\SamlBundle\SAML2\Response\LocalAssertionDecrypter
+        arguments:
+            - '@surfnet_saml.saml2.privatekeyloader'
 
-    SAML2\Response\Processor:
+    surfnet_saml.saml2.assertion_decrypter:
+        alias: surfnet_saml.saml2.local_assertion_decrypter
+
+    Surfnet\SamlBundle\SAML2\Response\AssertionDecrypter:
+        alias: surfnet_saml.saml2.assertion_decrypter
+
+    surfnet_saml.saml2.response_processor:
+        class: Surfnet\SamlBundle\SAML2\Response\ResponseProcessor
+        arguments:
+            - '@surfnet_saml.saml2.keyloader'
+            - '@surfnet_saml.saml2.privatekeyloader'
+            - '@logger'
+            - null # Legacy KeyMap constructor argument; use the decrypter service instead.
+            - '@surfnet_saml.saml2.assertion_decrypter'
+
+    Surfnet\SamlBundle\SAML2\Response\ResponseProcessor:
         alias: surfnet_saml.saml2.response_processor
 
     surfnet_saml.logger:

@@ -24,8 +24,11 @@ use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
-use SAML2\Assertion;
-use SAML2\Configuration\PrivateKey;
+use RuntimeException;
+use SimpleSAML\SAML2\Compat\ContainerSingleton;
+use SimpleSAML\SAML2\Compat\MockContainer;
+use SimpleSAML\SAML2\Configuration\PrivateKey;
+use SimpleSAML\SAML2\XML\saml\Assertion;
 use Surfnet\SamlBundle\Entity\IdentityProvider;
 use Surfnet\SamlBundle\Entity\ServiceProvider;
 use Surfnet\SamlBundle\Http\RedirectBinding;
@@ -37,6 +40,8 @@ use Surfnet\SamlBundle\Security\Authentication\Provider\SamlProviderInterface;
 use Surfnet\SamlBundle\Security\Authentication\SamlAuthenticationStateHandler;
 use Surfnet\SamlBundle\Security\Authentication\SamlAuthenticator;
 use Surfnet\SamlBundle\Security\Authentication\Token\SamlToken;
+use Surfnet\SamlBundle\Tests\TestAssertions;
+use Symfony\Component\Clock\MockClock;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -69,6 +74,9 @@ class SamlAuthenticatorTest extends TestCase
 
     protected function setUp(): void
     {
+        $container = new MockContainer();
+        $container->setClock(new MockClock('2026-11-04T12:00:00Z'));
+        ContainerSingleton::setContainer($container);
         $this->idp = Mockery::mock(IdentityProvider::class);
         $this->sp = Mockery::mock(ServiceProvider::class);
         $this->redirectBinding = Mockery::mock(RedirectBinding::class);
@@ -101,23 +109,37 @@ class SamlAuthenticatorTest extends TestCase
     {
         $request = Mockery::mock(Request::class);
 
-        $privateKey = Mockery::mock(PrivateKey::class);
-        $privateKey->shouldReceive('isFile')->andReturnFalse();
-        $privateKey->shouldReceive('getContents')->andReturn('pk-contents');
-        $privateKey->shouldReceive('getPassPhrase')->andReturn('');
-        $this->sp->shouldReceive('getAssertionConsumerUrl')->andReturn('route-name');
+        $privateKey = new PrivateKey(__DIR__ . '/../../../Resources/keys/development_privatekey.pem', PrivateKey::NAME_DEFAULT);
+        $this->sp->shouldReceive('getAssertionConsumerUrl')->andReturn('https://sp.example.com/acs');
         $this->sp->shouldReceive('getEntityId')->andReturn('https://sp-entity-id');
         $this->sp->shouldReceive('getPrivateKey')->andReturn($privateKey);
+        $this->sp->shouldReceive('usesPrivateKeyAgent')->andReturn(false);
 
-        $this->idp->shouldReceive('getSsoUrl')->andReturn('idp-sso');
+        $this->idp->shouldReceive('getSsoUrl')->andReturn('https://idp.example.com/sso');
 
-        $this->samlAuthenticationStateHandler->shouldReceive('setRequestId')->with('123');
+        $this->samlAuthenticationStateHandler->shouldReceive('setRequestId')->with(Mockery::type('string'));
 
         $this->redirectBinding->shouldReceive('createResponseFor')->andReturn(Mockery::mock(RedirectResponse::class));
 
         $response = $this->authenticator->start($request);
 
         $this->assertInstanceOf(RedirectResponse::class, $response);
+    }
+
+    public function test_start_keeps_no_request_id_when_signing_fails(): void
+    {
+        $privateKey = new PrivateKey(__DIR__ . '/../../../Resources/keys/development_privatekey.pem', PrivateKey::NAME_DEFAULT);
+        $this->sp->shouldReceive('getAssertionConsumerUrl')->andReturn('https://sp.example.com/acs');
+        $this->sp->shouldReceive('getEntityId')->andReturn('https://sp-entity-id');
+        $this->sp->shouldReceive('getPrivateKey')->andReturn($privateKey);
+        $this->sp->shouldReceive('usesPrivateKeyAgent')->andReturn(false);
+        $this->idp->shouldReceive('getSsoUrl')->andReturn('https://idp.example.com/sso');
+
+        $this->redirectBinding->shouldReceive('createResponseFor')->andThrow(new RuntimeException('agent unavailable'));
+        $this->samlAuthenticationStateHandler->shouldNotReceive('setRequestId');
+
+        $this->expectException(RuntimeException::class);
+        $this->authenticator->start(Mockery::mock(Request::class));
     }
 
     #[DataProvider('provideSupportsParameters')]
@@ -188,15 +210,13 @@ class SamlAuthenticatorTest extends TestCase
 
         $this->assertTrue($userBadge->isResolved());
 
-        $this->assertEquals([['attr1' => 'attr 1 value', 'attr2' => 'attr 2 value']], $attributesBadge->getAttributes());
+        $this->assertEquals(['attr1' => ['attr 1 value'], 'attr2' => ['attr 2 value']], $attributesBadge->getAttributes());
         $this->assertTrue($attributesBadge->isResolved());
     }
 
     private function assertion(): Assertion
     {
-        $assertion = new Assertion();
-        $assertion->setAttributes([['attr1' => 'attr 1 value', 'attr2' => 'attr 2 value']]);
-        return $assertion;
+        return TestAssertions::create(['attr1' => ['attr 1 value'], 'attr2' => ['attr 2 value']]);
     }
 
     public function test_create_token(): void
@@ -229,7 +249,7 @@ class SamlAuthenticatorTest extends TestCase
 
         $firewall = 'saml_based';
         $this->logger->shouldReceive('notice');
-        $this->samlAuthenticationStateHandler->shouldReceive('clearRequestId');
+        $this->samlAuthenticationStateHandler->shouldReceive('clearRequestId')->once();
 
         $response = $this->authenticator->onAuthenticationSuccess($request, $token, $firewall);
         $this->assertEquals($response, $redirectResponse);

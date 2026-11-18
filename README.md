@@ -15,9 +15,12 @@ Developed as part of the [OpenConext-Stepup Gateway][2] and related OpenConext-S
   composer require surfnet/stepup-saml-bundle
   ```
 
-How to install with Symfony 6.3+ and 7.x
+How to install with Symfony 6.4 or 7.4
  
-1. Require the bundle in the composer.json (version 4.1.9 or higher)
+1. Require the bundle. Version 8 requires PHP 8.5 and the saml2 7 release candidate, see [UPGRADING.md](UPGRADING.md):
+   ```sh
+   composer require simplesamlphp/saml2:^7.0.0-rc4 surfnet/stepup-saml-bundle:^8.0
+   ```
 2. Enable the bundle in `config/bundles.php` add to the return statement: `Surfnet\SamlBundle\SurfnetSamlBundle::class => ['all' => true],`
 3. Specify the bundle configuration in `config/packages/surfnet_saml.yaml`, consult the configuration section below for available options.
 4. Configure the templates to the Twig Bundle by adding `'%kernel.project_dir%/vendor/surfnet/stepup-saml-bundle/templates': 'SurfnetSaml'` to your twig.yaml config file(s) 
@@ -89,6 +92,59 @@ configured _must_ implement the `Surfnet\SamlBundle\Entity\ServiceProviderReposi
 Service providers can be provided statically by using the remote.service_providers configuration option. To use these configured service 
 providers keep in mind that you need to assign `surfnet_saml.remote.service_providers` as `service_provider_repository`.
 
+### Private Key Agent
+
+Hosted identities can let an [OpenConext Private Key Agent][3] perform their RSA private-key operations, so that the
+application never holds those private keys. The agent signs AuthnRequests and metadata, and decrypts the key of
+encrypted assertions; everything else stays local. Without it the bundle uses the local `private_key` files.
+
+```yaml
+surfnet_saml:
+    hosted:
+        service_provider:
+            enabled: true
+            assertion_consumer_route: name_of_the_route_of_the_assertion_consumer_url
+            public_key: '%kernel.project_dir%/config/saml/sp.crt'  # certificate of an agent key with `sign`
+            use_private_key_agent: true                            # private_key must not be set
+        metadata:
+            entity_id_route: name_of_the_route_of_metadata_url
+            public_key: '%kernel.project_dir%/config/saml/sp.crt'
+            use_private_key_agent: true
+    private_key_agent:
+        enabled: true
+        base_url: '%env(PKA_AGENT_URL)%'       # https://; http:// only for loopback with allow_insecure_http
+        allow_insecure_http: false
+        timeout: 3.0                           # idle timeout in seconds, 0.1-30
+        max_duration: 5.0                      # total time per request in seconds, 0.1-60
+        keys:
+            sp-key:                            # key name in the agent, [a-zA-Z0-9_-]{1,64}
+                certificate_file: '%kernel.project_dir%/config/saml/sp.crt'
+                token: '%env(trim:file:PKA_TOKEN_FILE)%'
+                operations: [sign, decrypt]
+        algorithms:                            # defaults; weaker algorithms are rejected
+            signature:
+                - 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256'
+                - 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha384'
+                - 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha512'
+            key_transport:
+                - 'http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p'
+                - 'http://www.w3.org/2009/xmlenc11#rsa-oaep'
+```
+
+- `use_private_key_agent` (a literal boolean) exists for `service_provider`, `identity_provider` and `metadata`.
+  Keys are matched by certificate fingerprint and only used for the operations they list.
+- `enabled` may use `%env(PKA_ENABLED)%` without a `bool:` cast; rebuild the container cache after changing it.
+- `algorithms.signature` must include RSA-SHA256 when a hosted identity signs through the agent.
+- Keep tokens out of configuration files, for example with the `file:` environment variable processor as above.
+- Certificate files are loaded on first agent use, so they need not be mounted during cache warmup. Once mounted,
+  run `bin/console surfnet:saml:validate-private-key-agent` during deployment; it does not contact the agent.
+- Each signature or decryption is one agent request, without retries. An agent failure fails the operation and never
+  falls back to a local key.
+- A service provider that receives encrypted assertions needs at least one key with `decrypt`. These keys are tried
+  in configuration order, or only the one the IdP names in the `EncryptedKey`.
+- Rolling over the SP key: add the new key (with `sign` and `decrypt`) before the old one and point
+  `service_provider.public_key` at its certificate. Remove the old key when all IdPs use the new metadata.
+
 ## Example Usage
 
 ### Symfony Authentication
@@ -142,3 +198,4 @@ users how to deal with these changes. This makes upgrading as painless as possib
 
 [1]: https://github.com/simplesamlphp/saml2
 [2]: https://github.com/OpenConext/Stepup-Gateway
+[3]: https://github.com/OpenConext/OpenConext-private-key-agent

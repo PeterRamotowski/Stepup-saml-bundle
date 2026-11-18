@@ -22,8 +22,11 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use SAML2\AuthnRequest as SAML2AuthnRequest;
-use SAML2\DOMDocumentFactory;
+use SimpleSAML\SAML2\XML\samlp\AuthnRequest as SAML2AuthnRequest;
+use SimpleSAML\XML\DOMDocumentFactory;
+use SimpleSAML\XMLSecurity\Constants as C;
+use SimpleSAML\XMLSecurity\Exception\UnsupportedAlgorithmException;
+use SimpleSAML\XMLSecurity\Key\X509Certificate;
 use stdClass;
 use Surfnet\SamlBundle\Http\Exception\InvalidReceivedAuthnRequestQueryStringException;
 use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
@@ -48,6 +51,19 @@ AUTHNREQUEST_NO_SUBJECT;
      *
      * @param $nonOrEmptyString
      */
+    #[Test]
+    public function direct_verification_rejects_hmac_without_a_key_type_error(): void
+    {
+        $query = ReceivedAuthnRequestQueryString::parse(http_build_query([
+            'SAMLRequest' => base64_encode('payload'),
+            'SigAlg' => C::SIG_HMAC_SHA256,
+            'Signature' => base64_encode('signature'),
+        ]));
+        $key = X509Certificate::fromFile(__DIR__ . '/../../../Resources/keys/development_publickey.cer')->getPublicKey();
+        $this->expectException(UnsupportedAlgorithmException::class);
+        $query->verify($key);
+    }
+
     #[Test]
     #[DataProvider('emptyStringProvider')]
     #[Group('AuthnRequest')]
@@ -224,9 +240,9 @@ AUTHNREQUEST_NO_SUBJECT;
     public function a_decoded_saml_request_can_be_acquired_from_a_received_authn_request_query_string(): void
     {
         $domDocument          = DOMDocumentFactory::fromString($this->authRequestNoSubject);
-        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->firstChild);
+        $unsignedAuthnRequest = SAML2AuthnRequest::fromXML($domDocument->documentElement);
 
-        $requestAsXml   = $unsignedAuthnRequest->toUnsignedXML()->ownerDocument->saveXML();
+        $requestAsXml   = $unsignedAuthnRequest->toXML()->ownerDocument->saveXml();
         $encodedRequest = base64_encode(gzdeflate($requestAsXml));
 
         $rawQuery = ReceivedAuthnRequestQueryString::PARAMETER_REQUEST . '=' . urlencode($encodedRequest);

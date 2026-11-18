@@ -20,21 +20,24 @@ namespace Tests\Unit\SAML2;
 
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use SimpleSAML\SAML2\Exception\ProtocolViolationException;
 use Surfnet\SamlBundle\Http\Exception\InvalidRequestException;
 use Surfnet\SamlBundle\Http\ReceivedAuthnRequestPost;
 
 class ReceivedAuthnRequestPostTest extends TestCase
 {
     #[Test]
-    public function it_can_decode_a_signed_saml_request(): void
+    // The XML signature covers NameIDPolicy, so POST requests are not normalised like HTTP-Redirect requests are.
+    public function a_signed_saml_request_with_transient_allow_create_is_rejected(): void
     {
         $samlRequest = str_replace(PHP_EOL, '', file_get_contents(__DIR__ . '/Resources/valid-signed.xml'));
         $parameters = [
             'SAMLRequest' => base64_encode($samlRequest),
             'RelayState' => '/index.php',
         ];
-        $authnRequest = ReceivedAuthnRequestPost::parse($parameters);
-        $this->assertEquals('/index.php', $authnRequest->getRelayState());
+
+        $this->expectException(ProtocolViolationException::class);
+        ReceivedAuthnRequestPost::parse($parameters);
     }
 
     #[Test]

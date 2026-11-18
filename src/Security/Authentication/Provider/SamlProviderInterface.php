@@ -18,7 +18,7 @@
 
 namespace Surfnet\SamlBundle\Security\Authentication\Provider;
 
-use SAML2\Assertion;
+use SimpleSAML\SAML2\XML\saml\Assertion;
 use Symfony\Component\Security\Core\User\UserInterface;
 
 interface SamlProviderInterface
